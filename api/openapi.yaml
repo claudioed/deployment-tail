@@ -1,0 +1,276 @@
+openapi: 3.0.3
+info:
+  title: Deployment Schedule API
+  description: API for managing deployment schedules
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development server
+
+paths:
+  /schedules:
+    get:
+      summary: List deployment schedules
+      operationId: listSchedules
+      parameters:
+        - name: from
+          in: query
+          description: Start date for filtering (ISO 8601 format)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: End date for filtering (ISO 8601 format)
+          schema:
+            type: string
+            format: date-time
+        - name: environment
+          in: query
+          description: Filter by environment
+          schema:
+            type: string
+            enum: [production, staging, development]
+      responses:
+        '200':
+          description: List of schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      summary: Create a new deployment schedule
+      operationId: createSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '201':
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /schedules/{id}:
+    get:
+      summary: Get a schedule by ID
+      operationId: getSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Schedule ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Schedule found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '404':
+          description: Schedule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update a schedule
+      operationId: updateSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Schedule ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleRequest'
+      responses:
+        '200':
+          description: Schedule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Schedule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete a schedule
+      operationId: deleteSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Schedule ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Schedule deleted
+        '404':
+          description: Schedule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Schedule:
+      type: object
+      required:
+        - id
+        - scheduledAt
+        - serviceName
+        - environment
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique schedule identifier
+        scheduledAt:
+          type: string
+          format: date-time
+          description: When the deployment is scheduled (ISO 8601)
+        serviceName:
+          type: string
+          description: Name of the service to deploy
+        environment:
+          type: string
+          enum: [production, staging, development]
+          description: Target environment
+        description:
+          type: string
+          description: Optional description of the deployment
+        createdAt:
+          type: string
+          format: date-time
+          description: When the schedule was created
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the schedule was last updated
+
+    CreateScheduleRequest:
+      type: object
+      required:
+        - scheduledAt
+        - serviceName
+        - environment
+      properties:
+        scheduledAt:
+          type: string
+          format: date-time
+          description: When the deployment is scheduled (ISO 8601)
+        serviceName:
+          type: string
+          description: Name of the service to deploy
+        environment:
+          type: string
+          enum: [production, staging, development]
+          description: Target environment
+        description:
+          type: string
+          description: Optional description of the deployment
+
+    UpdateScheduleRequest:
+      type: object
+      properties:
+        scheduledAt:
+          type: string
+          format: date-time
+          description: When the deployment is scheduled (ISO 8601)
+        serviceName:
+          type: string
+          description: Name of the service to deploy
+        environment:
+          type: string
+          enum: [production, staging, development]
+          description: Target environment
+        description:
+          type: string
+          description: Optional description of the deployment
+
+    Error:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Error message
+        details:
+          type: string
+          description: Additional error details
