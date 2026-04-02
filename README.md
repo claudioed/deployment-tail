@@ -4,11 +4,15 @@ A simple CRUD tool for managing deployment schedules. Built with Go, MySQL, and 
 
 ## Features
 
-- Create, read, update, and delete deployment schedules
-- REST API for schedule management
-- CLI tool for interacting with the API
-- Filter schedules by date range and environment
-- Persistent storage in MySQL
+- **Schedule Management**: Create, read, update, and delete deployment schedules
+- **Ownership Tracking**: Every schedule has an owner (immutable after creation)
+- **Approval Workflow**: Three-state workflow (created → approved/denied)
+- **Rollback Plans**: Optional rollback plans for operational safety
+- **Web UI**: Modern, responsive web interface for schedule management
+- **REST API**: Full-featured API for schedule management
+- **CLI Tool**: Command-line interface for all operations
+- **Advanced Filtering**: Filter by date range, environment, owner, and status
+- **Persistent Storage**: MySQL database with automatic migrations
 
 ## Architecture
 
@@ -71,17 +75,32 @@ export DEPLOYMENT_TAIL_API=http://localhost:8080
   --date "2026-04-01T14:00:00Z" \
   --service "api-service" \
   --env "production" \
-  --description "Quarterly release"
+  --owner "john.doe" \
+  --description "Quarterly release" \
+  --rollback-plan "Revert to v1.2.3 using git reset"
 
 # List all schedules
 ./bin/deployment-tail schedule list
 
+# Filter schedules
+./bin/deployment-tail schedule list \
+  --owner "john.doe" \
+  --status "created" \
+  --env "production"
+
 # Get a specific schedule
 ./bin/deployment-tail schedule get <schedule-id>
 
-# Update a schedule
+# Update a schedule (owner cannot be changed)
 ./bin/deployment-tail schedule update <schedule-id> \
-  --date "2026-04-02T10:00:00Z"
+  --date "2026-04-02T10:00:00Z" \
+  --rollback-plan "Updated rollback procedure"
+
+# Approve a schedule
+./bin/deployment-tail schedule approve <schedule-id>
+
+# Deny a schedule
+./bin/deployment-tail schedule deny <schedule-id>
 
 # Delete a schedule
 ./bin/deployment-tail schedule delete <schedule-id>
@@ -90,13 +109,58 @@ export DEPLOYMENT_TAIL_API=http://localhost:8080
 ## API Endpoints
 
 - `POST /api/v1/schedules` - Create a schedule
-- `GET /api/v1/schedules` - List schedules (with filters)
+- `GET /api/v1/schedules` - List schedules (supports filters: from, to, environment, owner, status)
 - `GET /api/v1/schedules/{id}` - Get a schedule by ID
 - `PUT /api/v1/schedules/{id}` - Update a schedule
+- `POST /api/v1/schedules/{id}/approve` - Approve a schedule
+- `POST /api/v1/schedules/{id}/deny` - Deny a schedule
 - `DELETE /api/v1/schedules/{id}` - Delete a schedule
 - `GET /health` - Health check
 
 See `api/openapi.yaml` for full API specification.
+
+## Web UI
+
+Access the web interface at `http://localhost:8080/` when the server is running.
+
+The Web UI provides:
+- **Dashboard**: View all schedules with filtering capabilities
+- **Create/Edit Forms**: User-friendly forms for schedule management
+- **Detail View**: Complete schedule information including rollback plans
+- **Approval Actions**: Approve or deny schedules directly from the UI
+- **Real-time Updates**: Instant feedback on all operations
+- **Responsive Design**: Works on desktop and mobile devices
+
+## Approval Workflow
+
+Schedules follow a three-state approval workflow:
+
+1. **Created**: New schedules start in the `created` state
+2. **Approved**: Schedules can be approved (created → approved)
+3. **Denied**: Schedules can be denied (created → denied)
+
+**Rules**:
+- Only schedules in `created` state can be approved or denied
+- Once approved or denied, the status cannot be changed
+- Owner field is immutable after creation (for audit trail)
+- All schedules created before this feature are automatically set to `approved` status with owner `system`
+
+## Data Model
+
+Each schedule includes:
+
+| Field | Type | Required | Immutable | Description |
+|-------|------|----------|-----------|-------------|
+| id | UUID | ✓ | ✓ | Unique identifier |
+| scheduledAt | DateTime | ✓ | | When deployment is scheduled |
+| serviceName | String | ✓ | | Service to deploy |
+| environment | Enum | ✓ | | production/staging/development |
+| owner | String | ✓ | ✓ | Schedule creator (immutable) |
+| status | Enum | ✓ | | created/approved/denied |
+| description | String | | | Optional description |
+| rollbackPlan | Text | | | Optional rollback procedure |
+| createdAt | DateTime | ✓ | ✓ | Creation timestamp |
+| updatedAt | DateTime | ✓ | | Last update timestamp |
 
 ## Configuration
 
@@ -154,10 +218,17 @@ To create a new migration:
 │   └── cli/               # CLI tool entry point
 ├── internal/
 │   ├── domain/            # Domain layer (entities, value objects)
+│   │   └── schedule/      # Schedule aggregate with Owner, Status, RollbackPlan
 │   ├── application/       # Application layer (use cases)
 │   ├── adapters/          # Adapters (HTTP, CLI, MySQL)
+│   │   ├── input/         # HTTP handlers and CLI commands
+│   │   └── output/        # MySQL repository implementation
 │   └── infrastructure/    # Infrastructure (config, logging, db)
 ├── migrations/            # Database migrations
+├── web/                   # Web UI (HTML, CSS, JavaScript)
+│   ├── index.html        # Main HTML page
+│   ├── styles.css        # Responsive CSS styles
+│   └── app.js            # Application JavaScript
 ├── docker-compose.yml     # Docker Compose for local development
 └── Makefile              # Build and development tasks
 ```
@@ -178,20 +249,34 @@ To create a new migration:
 
 ## Examples
 
-### Create a production deployment
+### Create a production deployment with rollback plan
 
 ```bash
 ./bin/deployment-tail schedule create \
   --date "2026-04-15T20:00:00Z" \
   --service "payment-service" \
   --env "production" \
-  --description "Payment gateway update"
+  --owner "ops-team" \
+  --description "Payment gateway update v2.1.0" \
+  --rollback-plan "1. Stop payment-service
+2. Restore database backup from before deployment
+3. Deploy previous version v2.0.5
+4. Restart payment-service
+5. Verify with health checks"
 ```
 
-### List production schedules
+### List pending approvals
 
 ```bash
-./bin/deployment-tail schedule list --env production
+./bin/deployment-tail schedule list --status created
+```
+
+### List production schedules by owner
+
+```bash
+./bin/deployment-tail schedule list \
+  --env production \
+  --owner "ops-team"
 ```
 
 ### Filter by date range
@@ -200,6 +285,28 @@ To create a new migration:
 ./bin/deployment-tail schedule list \
   --from "2026-04-01T00:00:00Z" \
   --to "2026-04-30T23:59:59Z"
+```
+
+### Approval workflow example
+
+```bash
+# Create a schedule (status: created)
+SCHEDULE_ID=$(./bin/deployment-tail schedule create \
+  --date "2026-04-20T18:00:00Z" \
+  --service "api-gateway" \
+  --env "production" \
+  --owner "alice" \
+  --description "API v3 rollout" \
+  --json | jq -r '.id')
+
+# Review the schedule
+./bin/deployment-tail schedule get $SCHEDULE_ID
+
+# Approve it (status: created → approved)
+./bin/deployment-tail schedule approve $SCHEDULE_ID
+
+# Or deny it (status: created → denied)
+# ./bin/deployment-tail schedule deny $SCHEDULE_ID
 ```
 
 ## License

@@ -55,6 +55,27 @@ func (e ScheduleEnvironment) Valid() bool {
 	}
 }
 
+// Defines values for ScheduleStatus.
+const (
+	ScheduleStatusApproved ScheduleStatus = "approved"
+	ScheduleStatusCreated  ScheduleStatus = "created"
+	ScheduleStatusDenied   ScheduleStatus = "denied"
+)
+
+// Valid indicates whether the value is a known member of the ScheduleStatus enum.
+func (e ScheduleStatus) Valid() bool {
+	switch e {
+	case ScheduleStatusApproved:
+		return true
+	case ScheduleStatusCreated:
+		return true
+	case ScheduleStatusDenied:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateScheduleRequestEnvironment.
 const (
 	UpdateScheduleRequestEnvironmentDevelopment UpdateScheduleRequestEnvironment = "development"
@@ -97,6 +118,27 @@ func (e ListSchedulesParamsEnvironment) Valid() bool {
 	}
 }
 
+// Defines values for ListSchedulesParamsStatus.
+const (
+	ListSchedulesParamsStatusApproved ListSchedulesParamsStatus = "approved"
+	ListSchedulesParamsStatusCreated  ListSchedulesParamsStatus = "created"
+	ListSchedulesParamsStatusDenied   ListSchedulesParamsStatus = "denied"
+)
+
+// Valid indicates whether the value is a known member of the ListSchedulesParamsStatus enum.
+func (e ListSchedulesParamsStatus) Valid() bool {
+	switch e {
+	case ListSchedulesParamsStatusApproved:
+		return true
+	case ListSchedulesParamsStatusCreated:
+		return true
+	case ListSchedulesParamsStatusDenied:
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateScheduleRequest defines model for CreateScheduleRequest.
 type CreateScheduleRequest struct {
 	// Description Optional description of the deployment
@@ -104,6 +146,12 @@ type CreateScheduleRequest struct {
 
 	// Environment Target environment
 	Environment CreateScheduleRequestEnvironment `json:"environment"`
+
+	// Owner Owner of the schedule
+	Owner string `json:"owner"`
+
+	// RollbackPlan Optional rollback plan for the deployment
+	RollbackPlan *string `json:"rollbackPlan,omitempty"`
 
 	// ScheduledAt When the deployment is scheduled (ISO 8601)
 	ScheduledAt time.Time `json:"scheduledAt"`
@@ -138,11 +186,20 @@ type Schedule struct {
 	// Id Unique schedule identifier
 	Id openapi_types.UUID `json:"id"`
 
+	// Owner Owner of the schedule (immutable after creation)
+	Owner string `json:"owner"`
+
+	// RollbackPlan Optional rollback plan for the deployment
+	RollbackPlan *string `json:"rollbackPlan,omitempty"`
+
 	// ScheduledAt When the deployment is scheduled (ISO 8601)
 	ScheduledAt time.Time `json:"scheduledAt"`
 
 	// ServiceName Name of the service to deploy
 	ServiceName string `json:"serviceName"`
+
+	// Status Approval status of the schedule
+	Status ScheduleStatus `json:"status"`
 
 	// UpdatedAt When the schedule was last updated
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -151,6 +208,9 @@ type Schedule struct {
 // ScheduleEnvironment Target environment
 type ScheduleEnvironment string
 
+// ScheduleStatus Approval status of the schedule
+type ScheduleStatus string
+
 // UpdateScheduleRequest defines model for UpdateScheduleRequest.
 type UpdateScheduleRequest struct {
 	// Description Optional description of the deployment
@@ -158,6 +218,9 @@ type UpdateScheduleRequest struct {
 
 	// Environment Target environment
 	Environment *UpdateScheduleRequestEnvironment `json:"environment,omitempty"`
+
+	// RollbackPlan Optional rollback plan for the deployment
+	RollbackPlan *string `json:"rollbackPlan,omitempty"`
 
 	// ScheduledAt When the deployment is scheduled (ISO 8601)
 	ScheduledAt *time.Time `json:"scheduledAt,omitempty"`
@@ -179,10 +242,19 @@ type ListSchedulesParams struct {
 
 	// Environment Filter by environment
 	Environment *ListSchedulesParamsEnvironment `form:"environment,omitempty" json:"environment,omitempty"`
+
+	// Owner Filter by owner
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+
+	// Status Filter by status
+	Status *ListSchedulesParamsStatus `form:"status,omitempty" json:"status,omitempty"`
 }
 
 // ListSchedulesParamsEnvironment defines parameters for ListSchedules.
 type ListSchedulesParamsEnvironment string
+
+// ListSchedulesParamsStatus defines parameters for ListSchedules.
+type ListSchedulesParamsStatus string
 
 // CreateScheduleJSONRequestBody defines body for CreateSchedule for application/json ContentType.
 type CreateScheduleJSONRequestBody = CreateScheduleRequest
@@ -207,6 +279,12 @@ type ServerInterface interface {
 	// Update a schedule
 	// (PUT /schedules/{id})
 	UpdateSchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Approve a schedule
+	// (POST /schedules/{id}/approve)
+	ApproveSchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Deny a schedule
+	// (POST /schedules/{id}/deny)
+	DenySchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -240,6 +318,18 @@ func (_ Unimplemented) GetSchedule(w http.ResponseWriter, r *http.Request, id op
 // Update a schedule
 // (PUT /schedules/{id})
 func (_ Unimplemented) UpdateSchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Approve a schedule
+// (POST /schedules/{id}/approve)
+func (_ Unimplemented) ApproveSchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Deny a schedule
+// (POST /schedules/{id}/deny)
+func (_ Unimplemented) DenySchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -281,6 +371,22 @@ func (siw *ServerInterfaceWrapper) ListSchedules(w http.ResponseWriter, r *http.
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "environment", r.URL.Query(), &params.Environment, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "environment", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "owner" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
 		return
 	}
 
@@ -375,6 +481,56 @@ func (siw *ServerInterfaceWrapper) UpdateSchedule(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateSchedule(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveSchedule operation middleware
+func (siw *ServerInterfaceWrapper) ApproveSchedule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveSchedule(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DenySchedule operation middleware
+func (siw *ServerInterfaceWrapper) DenySchedule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DenySchedule(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -511,6 +667,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/schedules/{id}", wrapper.UpdateSchedule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/schedules/{id}/approve", wrapper.ApproveSchedule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/schedules/{id}/deny", wrapper.DenySchedule)
 	})
 
 	return r

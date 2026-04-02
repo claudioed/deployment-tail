@@ -43,7 +43,7 @@ func (c *APIClient) GetSchedule(ctx context.Context, id string) (*api.Schedule, 
 }
 
 // ListSchedules retrieves all schedules
-func (c *APIClient) ListSchedules(ctx context.Context, from, to *time.Time, env *string) ([]api.Schedule, error) {
+func (c *APIClient) ListSchedules(ctx context.Context, from, to *time.Time, env, owner, status *string) ([]api.Schedule, error) {
 	url := "/api/v1/schedules?"
 	if from != nil {
 		url += fmt.Sprintf("from=%s&", from.Format(time.RFC3339))
@@ -53,6 +53,12 @@ func (c *APIClient) ListSchedules(ctx context.Context, from, to *time.Time, env 
 	}
 	if env != nil {
 		url += fmt.Sprintf("environment=%s&", *env)
+	}
+	if owner != nil {
+		url += fmt.Sprintf("owner=%s&", *owner)
+	}
+	if status != nil {
+		url += fmt.Sprintf("status=%s&", *status)
 	}
 
 	var result []api.Schedule
@@ -70,6 +76,20 @@ func (c *APIClient) UpdateSchedule(ctx context.Context, id string, req api.Updat
 // DeleteSchedule deletes a schedule
 func (c *APIClient) DeleteSchedule(ctx context.Context, id string) error {
 	return c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/schedules/%s", id), nil, nil)
+}
+
+// ApproveSchedule approves a schedule
+func (c *APIClient) ApproveSchedule(ctx context.Context, id string) (*api.Schedule, error) {
+	var result api.Schedule
+	err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/schedules/%s/approve", id), nil, &result)
+	return &result, err
+}
+
+// DenySchedule denies a schedule
+func (c *APIClient) DenySchedule(ctx context.Context, id string) (*api.Schedule, error) {
+	var result api.Schedule
+	err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/schedules/%s/deny", id), nil, &result)
+	return &result, err
 }
 
 // doRequest performs an HTTP request

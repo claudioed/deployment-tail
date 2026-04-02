@@ -63,6 +63,12 @@ func (s *Server) setupRoutes() {
 
 	// Health check
 	s.router.Get("/health", s.healthCheck)
+
+	// Serve static files from web directory
+	fileServer := http.FileServer(http.Dir("./web"))
+	s.router.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 // ServeHTTP implements http.Handler

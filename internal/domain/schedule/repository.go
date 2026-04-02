@@ -28,4 +28,6 @@ type Filters struct {
 	From        *time.Time
 	To          *time.Time
 	Environment *Environment
+	Owner       *Owner
+	Status      *Status
 }

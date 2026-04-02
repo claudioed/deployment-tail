@@ -24,9 +24,15 @@ func NewScheduleRepository(db *sql.DB) *ScheduleRepository {
 // Create saves a new schedule
 func (r *ScheduleRepository) Create(ctx context.Context, sch *schedule.Schedule) error {
 	query := `
-		INSERT INTO schedules (id, scheduled_at, service_name, environment, description, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO schedules (id, scheduled_at, service_name, environment, description, owner, status, rollback_plan, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
+
+	var rollbackPlan *string
+	if !sch.RollbackPlan().IsEmpty() {
+		val := sch.RollbackPlan().String()
+		rollbackPlan = &val
+	}
 
 	_, err := r.db.ExecContext(ctx, query,
 		sch.ID().String(),
@@ -34,6 +40,9 @@ func (r *ScheduleRepository) Create(ctx context.Context, sch *schedule.Schedule)
 		sch.Service().Value(),
 		sch.Environment().String(),
 		sch.Description().Value(),
+		sch.Owner().String(),
+		sch.Status().String(),
+		rollbackPlan,
 		sch.CreatedAt(),
 		sch.UpdatedAt(),
 	)
@@ -48,19 +57,22 @@ func (r *ScheduleRepository) Create(ctx context.Context, sch *schedule.Schedule)
 // FindByID retrieves a schedule by its ID
 func (r *ScheduleRepository) FindByID(ctx context.Context, id schedule.ScheduleID) (*schedule.Schedule, error) {
 	query := `
-		SELECT id, scheduled_at, service_name, environment, description, created_at, updated_at
+		SELECT id, scheduled_at, service_name, environment, description, owner, status, rollback_plan, created_at, updated_at
 		FROM schedules
 		WHERE id = ?
 	`
 
 	var (
-		idStr       string
-		scheduledAt time.Time
-		serviceName string
-		environment string
-		description string
-		createdAt   time.Time
-		updatedAt   time.Time
+		idStr        string
+		scheduledAt  time.Time
+		serviceName  string
+		environment  string
+		description  string
+		owner        string
+		status       string
+		rollbackPlan sql.NullString
+		createdAt    time.Time
+		updatedAt    time.Time
 	)
 
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
@@ -69,6 +81,9 @@ func (r *ScheduleRepository) FindByID(ctx context.Context, id schedule.ScheduleI
 		&serviceName,
 		&environment,
 		&description,
+		&owner,
+		&status,
+		&rollbackPlan,
 		&createdAt,
 		&updatedAt,
 	)
@@ -80,12 +95,17 @@ func (r *ScheduleRepository) FindByID(ctx context.Context, id schedule.ScheduleI
 		return nil, fmt.Errorf("failed to find schedule: %w", err)
 	}
 
-	return r.mapToSchedule(idStr, scheduledAt, serviceName, environment, description, createdAt, updatedAt)
+	rollbackPlanStr := ""
+	if rollbackPlan.Valid {
+		rollbackPlanStr = rollbackPlan.String
+	}
+
+	return r.mapToSchedule(idStr, scheduledAt, serviceName, environment, description, owner, status, rollbackPlanStr, createdAt, updatedAt)
 }
 
 // FindAll retrieves schedules with optional filters
 func (r *ScheduleRepository) FindAll(ctx context.Context, filters schedule.Filters) ([]*schedule.Schedule, error) {
-	query := "SELECT id, scheduled_at, service_name, environment, description, created_at, updated_at FROM schedules WHERE 1=1"
+	query := "SELECT id, scheduled_at, service_name, environment, description, owner, status, rollback_plan, created_at, updated_at FROM schedules WHERE 1=1"
 	args := []interface{}{}
 
 	// Apply filters
@@ -104,6 +124,16 @@ func (r *ScheduleRepository) FindAll(ctx context.Context, filters schedule.Filte
 		args = append(args, filters.Environment.String())
 	}
 
+	if filters.Owner != nil {
+		query += " AND owner = ?"
+		args = append(args, filters.Owner.String())
+	}
+
+	if filters.Status != nil {
+		query += " AND status = ?"
+		args = append(args, filters.Status.String())
+	}
+
 	query += " ORDER BY scheduled_at ASC"
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -116,20 +146,28 @@ func (r *ScheduleRepository) FindAll(ctx context.Context, filters schedule.Filte
 
 	for rows.Next() {
 		var (
-			idStr       string
-			scheduledAt time.Time
-			serviceName string
-			environment string
-			description string
-			createdAt   time.Time
-			updatedAt   time.Time
+			idStr        string
+			scheduledAt  time.Time
+			serviceName  string
+			environment  string
+			description  string
+			owner        string
+			status       string
+			rollbackPlan sql.NullString
+			createdAt    time.Time
+			updatedAt    time.Time
 		)
 
-		if err := rows.Scan(&idStr, &scheduledAt, &serviceName, &environment, &description, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&idStr, &scheduledAt, &serviceName, &environment, &description, &owner, &status, &rollbackPlan, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan schedule: %w", err)
 		}
 
-		sch, err := r.mapToSchedule(idStr, scheduledAt, serviceName, environment, description, createdAt, updatedAt)
+		rollbackPlanStr := ""
+		if rollbackPlan.Valid {
+			rollbackPlanStr = rollbackPlan.String
+		}
+
+		sch, err := r.mapToSchedule(idStr, scheduledAt, serviceName, environment, description, owner, status, rollbackPlanStr, createdAt, updatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -148,15 +186,23 @@ func (r *ScheduleRepository) FindAll(ctx context.Context, filters schedule.Filte
 func (r *ScheduleRepository) Update(ctx context.Context, sch *schedule.Schedule) error {
 	query := `
 		UPDATE schedules
-		SET scheduled_at = ?, service_name = ?, environment = ?, description = ?, updated_at = ?
+		SET scheduled_at = ?, service_name = ?, environment = ?, description = ?, status = ?, rollback_plan = ?, updated_at = ?
 		WHERE id = ?
 	`
+
+	var rollbackPlan *string
+	if !sch.RollbackPlan().IsEmpty() {
+		val := sch.RollbackPlan().String()
+		rollbackPlan = &val
+	}
 
 	result, err := r.db.ExecContext(ctx, query,
 		sch.ScheduledAt().Value(),
 		sch.Service().Value(),
 		sch.Environment().String(),
 		sch.Description().Value(),
+		sch.Status().String(),
+		rollbackPlan,
 		sch.UpdatedAt(),
 		sch.ID().String(),
 	)
@@ -205,6 +251,9 @@ func (r *ScheduleRepository) mapToSchedule(
 	serviceName string,
 	environment string,
 	description string,
+	ownerStr string,
+	statusStr string,
+	rollbackPlanStr string,
 	createdAt time.Time,
 	updatedAt time.Time,
 ) (*schedule.Schedule, error) {
@@ -230,5 +279,20 @@ func (r *ScheduleRepository) mapToSchedule(
 
 	desc := schedule.NewDescription(description)
 
-	return schedule.Reconstitute(id, st, sn, env, desc, createdAt, updatedAt), nil
+	owner, err := schedule.NewOwner(ownerStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid owner in database: %w", err)
+	}
+
+	status, err := schedule.ParseStatus(statusStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid status in database: %w", err)
+	}
+
+	rollbackPlan, err := schedule.NewRollbackPlan(rollbackPlanStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid rollback plan in database: %w", err)
+	}
+
+	return schedule.Reconstitute(id, st, sn, env, desc, owner, status, rollbackPlan, createdAt, updatedAt), nil
 }

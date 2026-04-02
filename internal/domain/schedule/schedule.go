@@ -7,13 +7,16 @@ import (
 
 // Schedule is the aggregate root for deployment schedules
 type Schedule struct {
-	id          ScheduleID
-	scheduledAt ScheduledTime
-	service     ServiceName
-	environment Environment
-	description Description
-	createdAt   time.Time
-	updatedAt   time.Time
+	id           ScheduleID
+	scheduledAt  ScheduledTime
+	service      ServiceName
+	environment  Environment
+	description  Description
+	owner        Owner
+	status       Status
+	rollbackPlan RollbackPlan
+	createdAt    time.Time
+	updatedAt    time.Time
 }
 
 // NewSchedule creates a new schedule
@@ -22,17 +25,22 @@ func NewSchedule(
 	service ServiceName,
 	environment Environment,
 	description Description,
+	owner Owner,
+	rollbackPlan RollbackPlan,
 ) (*Schedule, error) {
 	now := time.Now().UTC()
 
 	return &Schedule{
-		id:          NewScheduleID(),
-		scheduledAt: scheduledAt,
-		service:     service,
-		environment: environment,
-		description: description,
-		createdAt:   now,
-		updatedAt:   now,
+		id:           NewScheduleID(),
+		scheduledAt:  scheduledAt,
+		service:      service,
+		environment:  environment,
+		description:  description,
+		owner:        owner,
+		status:       StatusCreated, // New schedules start with created status
+		rollbackPlan: rollbackPlan,
+		createdAt:    now,
+		updatedAt:    now,
 	}, nil
 }
 
@@ -43,26 +51,33 @@ func Reconstitute(
 	service ServiceName,
 	environment Environment,
 	description Description,
+	owner Owner,
+	status Status,
+	rollbackPlan RollbackPlan,
 	createdAt time.Time,
 	updatedAt time.Time,
 ) *Schedule {
 	return &Schedule{
-		id:          id,
-		scheduledAt: scheduledAt,
-		service:     service,
-		environment: environment,
-		description: description,
-		createdAt:   createdAt,
-		updatedAt:   updatedAt,
+		id:           id,
+		scheduledAt:  scheduledAt,
+		service:      service,
+		environment:  environment,
+		description:  description,
+		owner:        owner,
+		status:       status,
+		rollbackPlan: rollbackPlan,
+		createdAt:    createdAt,
+		updatedAt:    updatedAt,
 	}
 }
 
-// Update updates the schedule fields
+// Update updates the schedule fields (owner cannot be changed)
 func (s *Schedule) Update(
 	scheduledAt *ScheduledTime,
 	service *ServiceName,
 	environment *Environment,
 	description *Description,
+	rollbackPlan *RollbackPlan,
 ) error {
 	if scheduledAt != nil {
 		s.scheduledAt = *scheduledAt
@@ -79,6 +94,29 @@ func (s *Schedule) Update(
 	if description != nil {
 		s.description = *description
 	}
+	if rollbackPlan != nil {
+		s.rollbackPlan = *rollbackPlan
+	}
+	s.updatedAt = time.Now().UTC()
+	return nil
+}
+
+// Approve changes the schedule status to approved
+func (s *Schedule) Approve() error {
+	if err := s.status.CanTransitionTo(StatusApproved); err != nil {
+		return err
+	}
+	s.status = StatusApproved
+	s.updatedAt = time.Now().UTC()
+	return nil
+}
+
+// Deny changes the schedule status to denied
+func (s *Schedule) Deny() error {
+	if err := s.status.CanTransitionTo(StatusDenied); err != nil {
+		return err
+	}
+	s.status = StatusDenied
 	s.updatedAt = time.Now().UTC()
 	return nil
 }
@@ -111,4 +149,16 @@ func (s *Schedule) CreatedAt() time.Time {
 
 func (s *Schedule) UpdatedAt() time.Time {
 	return s.updatedAt
+}
+
+func (s *Schedule) Owner() Owner {
+	return s.owner
+}
+
+func (s *Schedule) Status() Status {
+	return s.status
+}
+
+func (s *Schedule) RollbackPlan() RollbackPlan {
+	return s.rollbackPlan
 }

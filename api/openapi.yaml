@@ -31,6 +31,17 @@ paths:
           schema:
             type: string
             enum: [production, staging, development]
+        - name: owner
+          in: query
+          description: Filter by owner
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [created, approved, denied]
       responses:
         '200':
           description: List of schedules
@@ -184,6 +195,82 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /schedules/{id}/approve:
+    post:
+      summary: Approve a schedule
+      operationId: approveSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Schedule ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Schedule approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Bad request (e.g., invalid status transition)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Schedule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /schedules/{id}/deny:
+    post:
+      summary: Deny a schedule
+      operationId: denySchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Schedule ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Schedule denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Bad request (e.g., invalid status transition)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Schedule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   schemas:
     Schedule:
@@ -193,6 +280,8 @@ components:
         - scheduledAt
         - serviceName
         - environment
+        - owner
+        - status
         - createdAt
         - updatedAt
       properties:
@@ -214,6 +303,16 @@ components:
         description:
           type: string
           description: Optional description of the deployment
+        owner:
+          type: string
+          description: Owner of the schedule (immutable after creation)
+        status:
+          type: string
+          enum: [created, approved, denied]
+          description: Approval status of the schedule
+        rollbackPlan:
+          type: string
+          description: Optional rollback plan for the deployment
         createdAt:
           type: string
           format: date-time
@@ -229,6 +328,7 @@ components:
         - scheduledAt
         - serviceName
         - environment
+        - owner
       properties:
         scheduledAt:
           type: string
@@ -244,6 +344,12 @@ components:
         description:
           type: string
           description: Optional description of the deployment
+        owner:
+          type: string
+          description: Owner of the schedule
+        rollbackPlan:
+          type: string
+          description: Optional rollback plan for the deployment
 
     UpdateScheduleRequest:
       type: object
@@ -262,6 +368,9 @@ components:
         description:
           type: string
           description: Optional description of the deployment
+        rollbackPlan:
+          type: string
+          description: Optional rollback plan for the deployment
 
     Error:
       type: object

@@ -9,19 +9,22 @@ import (
 
 // CreateScheduleCommand represents the command to create a schedule
 type CreateScheduleCommand struct {
-	ScheduledAt time.Time
-	ServiceName string
-	Environment string
-	Description string
+	ScheduledAt  time.Time
+	ServiceName  string
+	Environment  string
+	Description  string
+	Owner        string
+	RollbackPlan string
 }
 
 // UpdateScheduleCommand represents the command to update a schedule
 type UpdateScheduleCommand struct {
-	ID          string
-	ScheduledAt *time.Time
-	ServiceName *string
-	Environment *string
-	Description *string
+	ID           string
+	ScheduledAt  *time.Time
+	ServiceName  *string
+	Environment  *string
+	Description  *string
+	RollbackPlan *string
 }
 
 // ListSchedulesQuery represents the query to list schedules
@@ -29,6 +32,18 @@ type ListSchedulesQuery struct {
 	From        *time.Time
 	To          *time.Time
 	Environment *string
+	Owner       *string
+	Status      *string
+}
+
+// ApproveScheduleCommand represents the command to approve a schedule
+type ApproveScheduleCommand struct {
+	ID string
+}
+
+// DenyScheduleCommand represents the command to deny a schedule
+type DenyScheduleCommand struct {
+	ID string
 }
 
 // ScheduleService defines the inbound port for schedule operations
@@ -47,4 +62,10 @@ type ScheduleService interface {
 
 	// DeleteSchedule deletes a schedule
 	DeleteSchedule(ctx context.Context, id string) error
+
+	// ApproveSchedule approves a schedule
+	ApproveSchedule(ctx context.Context, cmd ApproveScheduleCommand) (*schedule.Schedule, error)
+
+	// DenySchedule denies a schedule
+	DenySchedule(ctx context.Context, cmd DenyScheduleCommand) (*schedule.Schedule, error)
 }

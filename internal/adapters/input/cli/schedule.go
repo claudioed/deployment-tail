@@ -23,6 +23,8 @@ func NewScheduleCmd() *cobra.Command {
 		newScheduleListCmd(),
 		newScheduleUpdateCmd(),
 		newScheduleDeleteCmd(),
+		newScheduleApproveCmd(),
+		newScheduleDenyCmd(),
 	)
 
 	return cmd
@@ -31,10 +33,12 @@ func NewScheduleCmd() *cobra.Command {
 // newScheduleCreateCmd creates the "schedule create" command
 func newScheduleCreateCmd() *cobra.Command {
 	var (
-		scheduledAt string
-		service     string
-		environment string
-		description string
+		scheduledAt  string
+		service      string
+		environment  string
+		description  string
+		owner        string
+		rollbackPlan string
 	)
 
 	cmd := &cobra.Command{
@@ -54,10 +58,15 @@ func newScheduleCreateCmd() *cobra.Command {
 				ScheduledAt: scheduledTime,
 				ServiceName: service,
 				Environment: api.CreateScheduleRequestEnvironment(environment),
+				Owner:       owner,
 			}
 
 			if description != "" {
 				req.Description = &description
+			}
+
+			if rollbackPlan != "" {
+				req.RollbackPlan = &rollbackPlan
 			}
 
 			schedule, err := client.CreateSchedule(ctx, req)
@@ -74,8 +83,13 @@ func newScheduleCreateCmd() *cobra.Command {
 			fmt.Printf("Scheduled At: %s\n", schedule.ScheduledAt.Format(time.RFC3339))
 			fmt.Printf("Service: %s\n", schedule.ServiceName)
 			fmt.Printf("Environment: %s\n", schedule.Environment)
+			fmt.Printf("Owner: %s\n", schedule.Owner)
+			fmt.Printf("Status: %s\n", schedule.Status)
 			if schedule.Description != nil {
 				fmt.Printf("Description: %s\n", *schedule.Description)
+			}
+			if schedule.RollbackPlan != nil {
+				fmt.Printf("Rollback Plan: %s\n", *schedule.RollbackPlan)
 			}
 
 			return nil
@@ -86,10 +100,13 @@ func newScheduleCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&service, "service", "", "Service name")
 	cmd.Flags().StringVar(&environment, "env", "", "Environment (production, staging, development)")
 	cmd.Flags().StringVar(&description, "description", "", "Optional description")
+	cmd.Flags().StringVar(&owner, "owner", "", "Owner of the schedule")
+	cmd.Flags().StringVar(&rollbackPlan, "rollback-plan", "", "Optional rollback plan")
 
 	cmd.MarkFlagRequired("date")
 	cmd.MarkFlagRequired("service")
 	cmd.MarkFlagRequired("env")
+	cmd.MarkFlagRequired("owner")
 
 	return cmd
 }
@@ -117,8 +134,13 @@ func newScheduleGetCmd() *cobra.Command {
 			fmt.Printf("Scheduled At: %s\n", schedule.ScheduledAt.Format(time.RFC3339))
 			fmt.Printf("Service: %s\n", schedule.ServiceName)
 			fmt.Printf("Environment: %s\n", schedule.Environment)
+			fmt.Printf("Owner: %s\n", schedule.Owner)
+			fmt.Printf("Status: %s\n", schedule.Status)
 			if schedule.Description != nil {
 				fmt.Printf("Description: %s\n", *schedule.Description)
+			}
+			if schedule.RollbackPlan != nil {
+				fmt.Printf("Rollback Plan:\n%s\n", *schedule.RollbackPlan)
 			}
 			fmt.Printf("Created At: %s\n", schedule.CreatedAt.Format(time.RFC3339))
 			fmt.Printf("Updated At: %s\n", schedule.UpdatedAt.Format(time.RFC3339))
@@ -136,6 +158,8 @@ func newScheduleListCmd() *cobra.Command {
 		fromStr string
 		toStr   string
 		env     string
+		owner   string
+		status  string
 	)
 
 	cmd := &cobra.Command{
@@ -147,6 +171,8 @@ func newScheduleListCmd() *cobra.Command {
 
 			var from, to *time.Time
 			var environment *string
+			var ownerPtr *string
+			var statusPtr *string
 
 			if fromStr != "" {
 				t, err := time.Parse(time.RFC3339, fromStr)
@@ -168,7 +194,15 @@ func newScheduleListCmd() *cobra.Command {
 				environment = &env
 			}
 
-			schedules, err := client.ListSchedules(ctx, from, to, environment)
+			if owner != "" {
+				ownerPtr = &owner
+			}
+
+			if status != "" {
+				statusPtr = &status
+			}
+
+			schedules, err := client.ListSchedules(ctx, from, to, environment, ownerPtr, statusPtr)
 			if err != nil {
 				return err
 			}
@@ -191,6 +225,8 @@ func newScheduleListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&fromStr, "from", "", "Start date filter (RFC3339 format)")
 	cmd.Flags().StringVar(&toStr, "to", "", "End date filter (RFC3339 format)")
 	cmd.Flags().StringVar(&env, "env", "", "Environment filter")
+	cmd.Flags().StringVar(&owner, "owner", "", "Owner filter")
+	cmd.Flags().StringVar(&status, "status", "", "Status filter (created, approved, denied)")
 
 	return cmd
 }
@@ -198,10 +234,11 @@ func newScheduleListCmd() *cobra.Command {
 // newScheduleUpdateCmd creates the "schedule update" command
 func newScheduleUpdateCmd() *cobra.Command {
 	var (
-		scheduledAt string
-		service     string
-		environment string
-		description string
+		scheduledAt  string
+		service      string
+		environment  string
+		description  string
+		rollbackPlan string
 	)
 
 	cmd := &cobra.Command{
@@ -235,6 +272,10 @@ func newScheduleUpdateCmd() *cobra.Command {
 				req.Description = &description
 			}
 
+			if rollbackPlan != "" {
+				req.RollbackPlan = &rollbackPlan
+			}
+
 			schedule, err := client.UpdateSchedule(ctx, args[0], req)
 			if err != nil {
 				return err
@@ -249,6 +290,7 @@ func newScheduleUpdateCmd() *cobra.Command {
 			fmt.Printf("Scheduled At: %s\n", schedule.ScheduledAt.Format(time.RFC3339))
 			fmt.Printf("Service: %s\n", schedule.ServiceName)
 			fmt.Printf("Environment: %s\n", schedule.Environment)
+			fmt.Printf("Status: %s\n", schedule.Status)
 
 			return nil
 		},
@@ -258,6 +300,7 @@ func newScheduleUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&service, "service", "", "New service name")
 	cmd.Flags().StringVar(&environment, "env", "", "New environment")
 	cmd.Flags().StringVar(&description, "description", "", "New description")
+	cmd.Flags().StringVar(&rollbackPlan, "rollback-plan", "", "New rollback plan")
 
 	return cmd
 }
@@ -277,6 +320,64 @@ func newScheduleDeleteCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Schedule %s deleted successfully\n", args[0])
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+// newScheduleApproveCmd creates the "schedule approve" command
+func newScheduleApproveCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "approve <id>",
+		Short: "Approve a deployment schedule",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			client := NewAPIClient(apiEndpoint)
+
+			schedule, err := client.ApproveSchedule(ctx, args[0])
+			if err != nil {
+				return err
+			}
+
+			if outputJSON {
+				return printJSON(schedule)
+			}
+
+			fmt.Printf("Schedule %s approved successfully\n", args[0])
+			fmt.Printf("Status: %s\n", schedule.Status)
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+// newScheduleDenyCmd creates the "schedule deny" command
+func newScheduleDenyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deny <id>",
+		Short: "Deny a deployment schedule",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			client := NewAPIClient(apiEndpoint)
+
+			schedule, err := client.DenySchedule(ctx, args[0])
+			if err != nil {
+				return err
+			}
+
+			if outputJSON {
+				return printJSON(schedule)
+			}
+
+			fmt.Printf("Schedule %s denied successfully\n", args[0])
+			fmt.Printf("Status: %s\n", schedule.Status)
 
 			return nil
 		},

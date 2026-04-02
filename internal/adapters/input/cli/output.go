@@ -15,8 +15,8 @@ func printTable(schedules []api.Schedule) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	defer w.Flush()
 
-	fmt.Fprintln(w, "ID\tSCHEDULED AT\tSERVICE\tENVIRONMENT\tDESCRIPTION")
-	fmt.Fprintln(w, "----\t------------\t-------\t-----------\t-----------")
+	fmt.Fprintln(w, "ID\tSCHEDULED AT\tSERVICE\tENVIRONMENT\tOWNER\tSTATUS\tDESCRIPTION")
+	fmt.Fprintln(w, "----\t------------\t-------\t-----------\t-----\t------\t-----------")
 
 	for _, s := range schedules {
 		desc := ""
@@ -24,11 +24,13 @@ func printTable(schedules []api.Schedule) {
 			desc = truncate(*s.Description, 30)
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			truncate(s.Id.String(), 8),
 			s.ScheduledAt.Format(time.RFC3339),
 			truncate(s.ServiceName, 20),
 			s.Environment,
+			truncate(s.Owner, 15),
+			s.Status,
 			desc,
 		)
 	}
