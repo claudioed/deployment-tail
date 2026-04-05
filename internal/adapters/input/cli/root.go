@@ -27,6 +27,7 @@ func NewRootCmd() *cobra.Command {
 	// Add subcommands
 	rootCmd.AddCommand(NewAuthCmd())
 	rootCmd.AddCommand(NewScheduleCmd())
+	rootCmd.AddCommand(NewGroupCmd())
 
 	return rootCmd
 }

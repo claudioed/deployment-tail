@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"sort"
 
 	"github.com/claudioed/deployment-tail/internal/domain/group"
 	"github.com/claudioed/deployment-tail/internal/domain/schedule"
@@ -72,6 +73,7 @@ func (m *MockRepository) FindUngrouped(ctx context.Context, filters schedule.Fil
 type MockGroupRepository struct {
 	groups           map[string]*group.Group
 	scheduleGroups   map[string][]string // scheduleID -> []groupID
+	favorites        map[string]map[string]bool // userID -> groupID -> isFavorite
 	createErr        error
 	findErr          error
 	duplicateNameErr bool
@@ -81,6 +83,7 @@ func NewMockGroupRepository() *MockGroupRepository {
 	return &MockGroupRepository{
 		groups:         make(map[string]*group.Group),
 		scheduleGroups: make(map[string][]string),
+		favorites:      make(map[string]map[string]bool),
 	}
 }
 
@@ -181,6 +184,57 @@ func (m *MockGroupRepository) GetGroupsForSchedule(ctx context.Context, schedule
 		}
 	}
 	return result, nil
+}
+
+func (m *MockGroupRepository) FavoriteGroup(ctx context.Context, userID user.UserID, groupID group.GroupID) error {
+	if _, ok := m.groups[groupID.String()]; !ok {
+		return group.ErrGroupNotFound
+	}
+	if m.favorites[userID.String()] == nil {
+		m.favorites[userID.String()] = make(map[string]bool)
+	}
+	m.favorites[userID.String()][groupID.String()] = true
+	return nil
+}
+
+func (m *MockGroupRepository) UnfavoriteGroup(ctx context.Context, userID user.UserID, groupID group.GroupID) error {
+	if m.favorites[userID.String()] != nil {
+		delete(m.favorites[userID.String()], groupID.String())
+	}
+	return nil
+}
+
+func (m *MockGroupRepository) IsFavorite(ctx context.Context, userID user.UserID, groupID group.GroupID) (bool, error) {
+	if m.favorites[userID.String()] == nil {
+		return false, nil
+	}
+	return m.favorites[userID.String()][groupID.String()], nil
+}
+
+func (m *MockGroupRepository) FindAllWithFavorites(ctx context.Context, userID user.UserID, owner schedule.Owner) ([]*group.Group, map[group.GroupID]bool, error) {
+	var result []*group.Group
+	favorites := make(map[group.GroupID]bool)
+
+	for _, grp := range m.groups {
+		if grp.Owner().Equals(owner) {
+			result = append(result, grp)
+			if m.favorites[userID.String()] != nil && m.favorites[userID.String()][grp.ID().String()] {
+				favorites[grp.ID()] = true
+			}
+		}
+	}
+
+	// Sort: favorites first, then alphabetically
+	sort.Slice(result, func(i, j int) bool {
+		isFavI := favorites[result[i].ID()]
+		isFavJ := favorites[result[j].ID()]
+		if isFavI != isFavJ {
+			return isFavI // favorites come first
+		}
+		return result[i].Name().String() < result[j].Name().String()
+	})
+
+	return result, favorites, nil
 }
 
 // MockUserRepository is a mock implementation of user.Repository for testing

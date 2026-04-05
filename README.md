@@ -13,7 +13,8 @@ A comprehensive tool for managing deployment schedules with group organization. 
 - **Multi-Owner Support**: Schedules can have multiple owners for collaborative management
 - **Multi-Environment Deployments**: Schedule deployments across multiple environments simultaneously
 - **Group Organization**: Organize schedules into logical groups (projects, teams, releases)
-- **Tab Navigation**: Filter schedules by group with persistent tab state
+- **Group Favorites**: Mark frequently used groups as favorites for quick access with star icons
+- **Tab Navigation**: Filter schedules by group with persistent tab state, favorites appear first
 - **Ownership Tracking**: Every schedule and group has owners
 - **Approval Workflow**: Three-state workflow (created → approved/denied)
 - **Inline Status Editing**: Edit schedule status directly from the list view with keyboard support
@@ -232,6 +233,12 @@ deployment-tail auth logout
 
 # Force re-authentication (bypass cached token)
 deployment-tail schedule list --force-login
+
+# Group favorite commands
+deployment-tail group list --owner ops-team              # List all groups
+deployment-tail group list --owner ops-team --favorites-only  # List only favorited groups
+deployment-tail group favorite <group-id>                # Mark group as favorite
+deployment-tail group unfavorite <group-id>              # Remove from favorites
 ```
 
 **Manual authentication** (for headless environments):
@@ -397,8 +404,8 @@ Open your browser and navigate to `http://localhost:8080/` and click "Login with
 The Web UI provides:
 - **Authentication**: Secure Google OAuth login with role-based access
 - **Dashboard**: View all schedules with tab-based filtering
-- **Group Management**: Create, edit, and delete groups
-- **Tab Navigation**: Switch between "All", "Ungrouped", and group-specific views
+- **Group Management**: Create, edit, delete, and favorite groups with star icons
+- **Tab Navigation**: Switch between "All", "Ungrouped", and group-specific views (favorited groups appear first)
 - **Schedule Assignment**: Drag-and-drop or bulk assign schedules to groups
 - **Create/Edit Forms**: User-friendly modals for all operations
 - **Detail View**: Complete schedule information including groups, rollback plans, and audit trail
@@ -437,10 +444,12 @@ The Web UI provides:
 ### Groups
 
 - `POST /api/v1/groups` - Create a group (deployer, admin)
-- `GET /api/v1/groups` - List groups for an owner (any authenticated user)
+- `GET /api/v1/groups` - List groups for an owner with favorite status (any authenticated user)
 - `GET /api/v1/groups/{id}` - Get a group by ID (any authenticated user)
 - `PUT /api/v1/groups/{id}` - Update a group (deployer, admin)
 - `DELETE /api/v1/groups/{id}` - Delete a group (deployer, admin)
+- `POST /api/v1/groups/{id}/favorite` - Mark group as favorite (any authenticated user)
+- `DELETE /api/v1/groups/{id}/favorite` - Remove favorite status (any authenticated user)
 - `GET /api/v1/groups/{id}/schedules` - Get all schedules in a group (any authenticated user)
 
 ### Schedule-Group Associations
@@ -749,6 +758,22 @@ npm run test:coverage
 | owner | String | ✓ | ✓ | Group creator (immutable) |
 | createdAt | DateTime | ✓ | ✓ | Creation timestamp |
 | updatedAt | DateTime | ✓ | | Last update timestamp |
+
+### Group Favorites
+
+Junction table for tracking user-favorited groups.
+
+| Field | Type | Required | Immutable | Description |
+|-------|------|----------|-----------|-------------|
+| user_id | UUID | ✓ | ✓ | User who favorited the group (FK to users) |
+| group_id | UUID | ✓ | ✓ | Group that was favorited (FK to groups) |
+| created_at | DateTime | ✓ | ✓ | When the favorite was added |
+
+**Constraints:**
+- Composite primary key: (user_id, group_id) - prevents duplicate favorites
+- Foreign key: user_id → users(id) with CASCADE delete
+- Foreign key: group_id → groups(id) with CASCADE delete
+- Index on user_id for efficient favorite lookups
 
 ## Configuration
 

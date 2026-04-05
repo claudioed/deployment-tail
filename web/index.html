@@ -18,8 +18,17 @@
             <div id="list-view" class="view">
                 <div class="toolbar">
                     <button id="btn-create" class="btn btn-primary">Create Schedule</button>
+                    <button id="btn-create-group" class="btn btn-primary">Create Group</button>
+                    <button id="btn-manage-groups" class="btn btn-secondary">Manage Groups</button>
                     <button id="btn-refresh" class="btn btn-secondary">Refresh</button>
                 </div>
+
+                <!-- Tab Navigation -->
+                <nav class="tab-nav" id="tab-nav">
+                    <ul class="tab-nav__tabs" id="tab-list" role="tablist">
+                        <!-- Tabs will be dynamically generated here -->
+                    </ul>
+                </nav>
 
                 <div class="filters">
                     <input type="text" id="filter-owner" placeholder="Filter by owner">
@@ -37,7 +46,22 @@
                     </select>
                 </div>
 
-                <div id="schedule-list" class="schedule-list"></div>
+                <div class="schedule-table-wrapper">
+                    <table class="schedule-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Service</th>
+                                <th>Environment</th>
+                                <th>Scheduled</th>
+                                <th>Owner</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedule-list">
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Create/Edit Form View -->
@@ -53,17 +77,21 @@
                         <input type="text" id="service" required>
                     </div>
                     <div class="form-group">
-                        <label for="environment">Environment*</label>
-                        <select id="environment" required>
-                            <option value="">Select environment</option>
-                            <option value="production">Production</option>
-                            <option value="staging">Staging</option>
-                            <option value="development">Development</option>
-                        </select>
+                        <label for="environment">Environments*</label>
+                        <div id="environment-tag-input" class="tag-input-container">
+                            <!-- Environment tags will be rendered here -->
+                        </div>
+                        <div class="environment-options" id="environment-options">
+                            <span class="env-option" data-env="production">Production</span>
+                            <span class="env-option" data-env="staging">Staging</span>
+                            <span class="env-option" data-env="development">Development</span>
+                        </div>
                     </div>
                     <div class="form-group">
-                        <label for="owner">Owner*</label>
-                        <input type="text" id="owner" required>
+                        <label for="owner">Owners*</label>
+                        <div id="owner-tag-input" class="tag-input-container">
+                            <!-- Owner tags will be rendered here -->
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="description">Description</label>
@@ -86,15 +114,92 @@
                     <h2>Schedule Details</h2>
                     <div class="detail-actions">
                         <button id="btn-edit" class="btn btn-secondary">Edit</button>
+                        <button id="btn-assign-group" class="btn btn-secondary">Assign to Group</button>
                         <button id="btn-approve" class="btn btn-success">Approve</button>
                         <button id="btn-deny" class="btn btn-danger">Deny</button>
                         <button id="btn-delete" class="btn btn-danger">Delete</button>
                         <button id="btn-back" class="btn btn-secondary">Back to List</button>
                     </div>
                 </div>
-                <div id="schedule-detail" class="schedule-detail"></div>
+                <div id="schedule-detail" class="schedule-detail">
+                    <!-- Group badges will be displayed here -->
+                    <div class="group-badges" id="schedule-groups"></div>
+                </div>
             </div>
         </main>
+
+        <!-- Group Management Modal -->
+        <div id="group-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="group-modal-title">Create Group</h2>
+                    <button class="modal-close" id="group-modal-close">&times;</button>
+                </div>
+                <form id="group-form" class="group-form">
+                    <div class="form-group">
+                        <label for="group-name">Group Name*</label>
+                        <input type="text" id="group-name" required maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="group-description">Description</label>
+                        <textarea id="group-description" rows="3" maxlength="500"></textarea>
+                    </div>
+                    <input type="hidden" id="group-id">
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="button" class="btn btn-secondary" id="group-form-cancel">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Groups List Modal -->
+        <div id="groups-list-modal" class="modal hidden">
+            <div class="modal-content modal-content--large">
+                <div class="modal-header">
+                    <h2>Manage Groups</h2>
+                    <button class="modal-close" id="groups-list-close">&times;</button>
+                </div>
+                <div class="group-list">
+                    <table class="group-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px; text-align: center;">★</th>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Schedules</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="groups-list">
+                            <!-- Groups will be dynamically populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Assign to Group Modal -->
+        <div id="assign-group-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Assign to Groups</h2>
+                    <button class="modal-close" id="assign-group-close">&times;</button>
+                </div>
+                <div class="assign-group-modal">
+                    <div class="form-group">
+                        <label>Select Groups:</label>
+                        <div id="group-checkbox-list" class="checkbox-list">
+                            <!-- Checkboxes will be dynamically generated here -->
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button id="btn-save-assignment" class="btn btn-primary">Save</button>
+                        <button id="btn-cancel-assignment" class="btn btn-secondary">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div id="notification" class="notification hidden"></div>
         <div id="loading" class="loading hidden">Loading...</div>

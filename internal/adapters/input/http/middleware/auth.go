@@ -168,3 +168,13 @@ func UserFromContext(ctx context.Context) (*user.User, error) {
 func UserToContext(ctx context.Context, u *user.User) context.Context {
 	return context.WithValue(ctx, userContextKey, u)
 }
+
+// UserIDFromContext extracts the authenticated user ID from the request context
+// Returns empty string and error if no user is authenticated
+func UserIDFromContext(ctx context.Context) (string, error) {
+	u, err := UserFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	return u.ID().String(), nil
+}

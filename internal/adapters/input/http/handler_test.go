@@ -701,6 +701,206 @@ func TestDeleteSchedule(t *testing.T) {
 	}
 }
 
+// Favorite groups handler tests
+
+func TestFavoriteGroup(t *testing.T) {
+	scheduleService, groupService, _, _ := setupTestServices(t)
+	handler := NewGroupHandler(groupService, scheduleService)
+
+	// Create test group
+	grp := createTestGroup(t, groupService, "Project Alpha", "test-user")
+
+	// Create test user for authentication context
+	testUser := user.NewUserID()
+	googleID, _ := user.NewGoogleID("test-user")
+	email, _ := user.NewEmail("test@example.com")
+	name, _ := user.NewUserName("Test User")
+	role, _ := user.NewRole(user.RoleViewer)
+	u := user.Reconstitute(testUser, googleID, email, name, role, nil, time.Now(), time.Now())
+
+	// Create request with authentication context
+	req := httptest.NewRequest(http.MethodPost, "/groups/"+grp.ID().String()+"/favorite", nil)
+	ctx := middleware.UserToContext(req.Context(), u)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	groupUUID := parseUUID(t, grp.ID().String())
+	handler.FavoriteGroup(w, req, groupUUID)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected status 204, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFavoriteGroupUnauthenticated(t *testing.T) {
+	scheduleService, groupService, _, _ := setupTestServices(t)
+	handler := NewGroupHandler(groupService, scheduleService)
+
+	// Create test group
+	grp := createTestGroup(t, groupService, "Project Alpha", "test-user")
+
+	// Create request WITHOUT authentication context
+	req := httptest.NewRequest(http.MethodPost, "/groups/"+grp.ID().String()+"/favorite", nil)
+	w := httptest.NewRecorder()
+
+	groupUUID := parseUUID(t, grp.ID().String())
+	handler.FavoriteGroup(w, req, groupUUID)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", w.Code)
+	}
+}
+
+func TestFavoriteGroupNotFound(t *testing.T) {
+	scheduleService, groupService, _, _ := setupTestServices(t)
+	handler := NewGroupHandler(groupService, scheduleService)
+
+	// Create test user for authentication context
+	testUser := user.NewUserID()
+	googleID, _ := user.NewGoogleID("test-user")
+	email, _ := user.NewEmail("test@example.com")
+	name, _ := user.NewUserName("Test User")
+	role, _ := user.NewRole(user.RoleViewer)
+	u := user.Reconstitute(testUser, googleID, email, name, role, nil, time.Now(), time.Now())
+
+	// Use non-existent group ID
+	fakeID := group.NewGroupID()
+
+	req := httptest.NewRequest(http.MethodPost, "/groups/"+fakeID.String()+"/favorite", nil)
+	ctx := middleware.UserToContext(req.Context(), u)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	groupUUID := parseUUID(t, fakeID.String())
+	handler.FavoriteGroup(w, req, groupUUID)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+}
+
+func TestUnfavoriteGroup(t *testing.T) {
+	scheduleService, groupService, _, _ := setupTestServices(t)
+	handler := NewGroupHandler(groupService, scheduleService)
+
+	// Create test group
+	grp := createTestGroup(t, groupService, "Project Alpha", "test-user")
+
+	// Create test user for authentication context
+	testUser := user.NewUserID()
+	googleID, _ := user.NewGoogleID("test-user")
+	email, _ := user.NewEmail("test@example.com")
+	name, _ := user.NewUserName("Test User")
+	role, _ := user.NewRole(user.RoleViewer)
+	u := user.Reconstitute(testUser, googleID, email, name, role, nil, time.Now(), time.Now())
+
+	// First favorite the group
+	groupService.FavoriteGroup(context.Background(), testUser.String(), grp.ID().String())
+
+	// Now unfavorite it
+	req := httptest.NewRequest(http.MethodDelete, "/groups/"+grp.ID().String()+"/favorite", nil)
+	ctx := middleware.UserToContext(req.Context(), u)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	groupUUID := parseUUID(t, grp.ID().String())
+	handler.UnfavoriteGroup(w, req, groupUUID)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected status 204, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUnfavoriteGroupUnauthenticated(t *testing.T) {
+	scheduleService, groupService, _, _ := setupTestServices(t)
+	handler := NewGroupHandler(groupService, scheduleService)
+
+	// Create test group
+	grp := createTestGroup(t, groupService, "Project Alpha", "test-user")
+
+	// Create request WITHOUT authentication context
+	req := httptest.NewRequest(http.MethodDelete, "/groups/"+grp.ID().String()+"/favorite", nil)
+	w := httptest.NewRecorder()
+
+	groupUUID := parseUUID(t, grp.ID().String())
+	handler.UnfavoriteGroup(w, req, groupUUID)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", w.Code)
+	}
+}
+
+func TestGetGroupsWithFavoriteStatus(t *testing.T) {
+	scheduleService, groupService, _, _ := setupTestServices(t)
+	handler := NewGroupHandler(groupService, scheduleService)
+
+	// Create multiple groups
+	grp1 := createTestGroup(t, groupService, "Alpha", "test-user")
+	grp2 := createTestGroup(t, groupService, "Beta", "test-user")
+	grp3 := createTestGroup(t, groupService, "Gamma", "test-user")
+
+	// Create test user for authentication context
+	testUser := user.NewUserID()
+	googleID, _ := user.NewGoogleID("test-user")
+	email, _ := user.NewEmail("test@example.com")
+	name, _ := user.NewUserName("Test User")
+	role, _ := user.NewRole(user.RoleViewer)
+	u := user.Reconstitute(testUser, googleID, email, name, role, nil, time.Now(), time.Now())
+
+	// Favorite Beta and Gamma
+	groupService.FavoriteGroup(context.Background(), testUser.String(), grp2.ID().String())
+	groupService.FavoriteGroup(context.Background(), testUser.String(), grp3.ID().String())
+
+	// Get groups with authentication
+	req := httptest.NewRequest(http.MethodGet, "/groups?owner=test-user", nil)
+	ctx := middleware.UserToContext(req.Context(), u)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	handler.ListGroups(w, req, api.ListGroupsParams{Owner: "test-user"})
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var groups []api.Group
+	json.NewDecoder(w.Body).Decode(&groups)
+
+	if len(groups) != 3 {
+		t.Fatalf("expected 3 groups, got %d", len(groups))
+	}
+
+	// Check isFavorite fields
+	for _, grp := range groups {
+		if grp.Id.String() == grp2.ID().String() {
+			if !*grp.IsFavorite {
+				t.Error("expected Beta to be favorited")
+			}
+		}
+		if grp.Id.String() == grp3.ID().String() {
+			if !*grp.IsFavorite {
+				t.Error("expected Gamma to be favorited")
+			}
+		}
+		if grp.Id.String() == grp1.ID().String() {
+			if grp.IsFavorite != nil && *grp.IsFavorite {
+				t.Error("expected Alpha to not be favorited")
+			}
+		}
+	}
+
+	// Verify sorting: favorites first (Beta, Gamma), then non-favorites (Alpha)
+	if groups[0].Name != "Beta" {
+		t.Errorf("expected first group to be Beta (favorited), got %s", groups[0].Name)
+	}
+	if groups[1].Name != "Gamma" {
+		t.Errorf("expected second group to be Gamma (favorited), got %s", groups[1].Name)
+	}
+	if groups[2].Name != "Alpha" {
+		t.Errorf("expected third group to be Alpha (not favorited), got %s", groups[2].Name)
+	}
+}
+
 // Helper function
 func parseUUID(t *testing.T, s string) openapi_types.UUID {
 	t.Helper()

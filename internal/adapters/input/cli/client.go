@@ -95,6 +95,24 @@ func (c *APIClient) DenySchedule(ctx context.Context, id string) (*api.Schedule,
 	return &result, err
 }
 
+// ListGroups retrieves all groups for an owner
+func (c *APIClient) ListGroups(ctx context.Context, owner string) ([]interface{}, error) {
+	url := fmt.Sprintf("/api/v1/groups?owner=%s", owner)
+	var result []interface{}
+	err := c.doRequest(ctx, "GET", url, nil, &result)
+	return result, err
+}
+
+// FavoriteGroup marks a group as favorite
+func (c *APIClient) FavoriteGroup(ctx context.Context, groupID string) error {
+	return c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/groups/%s/favorite", groupID), nil, nil)
+}
+
+// UnfavoriteGroup removes favorite status from a group
+func (c *APIClient) UnfavoriteGroup(ctx context.Context, groupID string) error {
+	return c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/groups/%s/favorite", groupID), nil, nil)
+}
+
 // doRequest performs an authenticated HTTP request
 func (c *APIClient) doRequest(ctx context.Context, method, path string, body, result interface{}) error {
 	// Validate and refresh token before request

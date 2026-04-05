@@ -281,6 +281,9 @@ type Group struct {
 	// Id Unique group identifier
 	Id openapi_types.UUID `json:"id"`
 
+	// IsFavorite Whether this group is favorited by the authenticated user
+	IsFavorite *bool `json:"isFavorite,omitempty"`
+
 	// Name Name of the group
 	Name string `json:"name"`
 
@@ -505,6 +508,12 @@ type ServerInterface interface {
 	// Update a group
 	// (PUT /groups/{id})
 	UpdateGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Remove favorite status from a group
+	// (DELETE /groups/{id}/favorite)
+	UnfavoriteGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Mark a group as favorite
+	// (POST /groups/{id}/favorite)
+	FavoriteGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// Get schedules in a group
 	// (GET /groups/{id}/schedules)
 	GetSchedulesInGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
@@ -610,6 +619,18 @@ func (_ Unimplemented) GetGroup(w http.ResponseWriter, r *http.Request, id opena
 // Update a group
 // (PUT /groups/{id})
 func (_ Unimplemented) UpdateGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove favorite status from a group
+// (DELETE /groups/{id}/favorite)
+func (_ Unimplemented) UnfavoriteGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Mark a group as favorite
+// (POST /groups/{id}/favorite)
+func (_ Unimplemented) FavoriteGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -965,6 +986,68 @@ func (siw *ServerInterfaceWrapper) UpdateGroup(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnfavoriteGroup operation middleware
+func (siw *ServerInterfaceWrapper) UnfavoriteGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnfavoriteGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FavoriteGroup operation middleware
+func (siw *ServerInterfaceWrapper) FavoriteGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FavoriteGroup(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1640,6 +1723,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/groups/{id}", wrapper.UpdateGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/groups/{id}/favorite", wrapper.UnfavoriteGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/groups/{id}/favorite", wrapper.FavoriteGroup)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/groups/{id}/schedules", wrapper.GetSchedulesInGroup)
