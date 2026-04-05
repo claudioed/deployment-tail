@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/claudioed/deployment-tail/api"
+	authmiddleware "github.com/claudioed/deployment-tail/internal/adapters/input/http/middleware"
 	"github.com/claudioed/deployment-tail/internal/application/ports/input"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -11,15 +12,31 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	service input.ScheduleService
-	router  *chi.Mux
+	scheduleService input.ScheduleService
+	groupService    input.GroupService
+	userService     input.UserService
+	authHandler     *AuthHandler
+	userHandler     *UserHandler
+	authMiddleware  *authmiddleware.AuthenticationMiddleware
+	router          *chi.Mux
 }
 
 // NewServer creates a new HTTP server
-func NewServer(service input.ScheduleService) *Server {
+func NewServer(
+	scheduleService input.ScheduleService,
+	groupService input.GroupService,
+	userService input.UserService,
+	authHandler *AuthHandler,
+	authMiddleware *authmiddleware.AuthenticationMiddleware,
+) *Server {
 	s := &Server{
-		service: service,
-		router:  chi.NewRouter(),
+		scheduleService: scheduleService,
+		groupService:    groupService,
+		userService:     userService,
+		authHandler:     authHandler,
+		userHandler:     NewUserHandler(userService),
+		authMiddleware:  authMiddleware,
+		router:          chi.NewRouter(),
 	}
 
 	s.setupMiddleware()
@@ -56,15 +73,22 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 // setupRoutes configures the API routes
 func (s *Server) setupRoutes() {
-	handler := NewScheduleHandler(s.service)
-
-	// Mount the generated chi server
-	s.router.Mount("/api/v1", api.HandlerFromMux(handler, s.router))
-
-	// Health check
+	// Health check (public)
 	s.router.Get("/health", s.healthCheck)
 
-	// Serve static files from web directory
+	// Combined handler implements all API endpoints
+	combinedHandler := &CombinedHandler{
+		ScheduleHandler: NewScheduleHandler(s.scheduleService, s.groupService, s.userService),
+		GroupHandler:    NewGroupHandler(s.groupService, s.scheduleService),
+		UserHandler:     s.userHandler,
+		AuthHandler:     s.authHandler,
+	}
+
+	// Mount all API routes through the generated handler
+	// The OpenAPI spec defines which routes require authentication
+	api.HandlerFromMux(combinedHandler, s.router)
+
+	// Serve static files from web directory (public)
 	fileServer := http.FileServer(http.Dir("./web"))
 	s.router.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		fileServer.ServeHTTP(w, r)

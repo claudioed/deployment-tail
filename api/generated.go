@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -13,42 +14,46 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
-// Defines values for CreateScheduleRequestEnvironment.
 const (
-	CreateScheduleRequestEnvironmentDevelopment CreateScheduleRequestEnvironment = "development"
-	CreateScheduleRequestEnvironmentProduction  CreateScheduleRequestEnvironment = "production"
-	CreateScheduleRequestEnvironmentStaging     CreateScheduleRequestEnvironment = "staging"
+	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
-// Valid indicates whether the value is a known member of the CreateScheduleRequestEnvironment enum.
-func (e CreateScheduleRequestEnvironment) Valid() bool {
+// Defines values for CreateScheduleRequestEnvironments.
+const (
+	CreateScheduleRequestEnvironmentsDevelopment CreateScheduleRequestEnvironments = "development"
+	CreateScheduleRequestEnvironmentsProduction  CreateScheduleRequestEnvironments = "production"
+	CreateScheduleRequestEnvironmentsStaging     CreateScheduleRequestEnvironments = "staging"
+)
+
+// Valid indicates whether the value is a known member of the CreateScheduleRequestEnvironments enum.
+func (e CreateScheduleRequestEnvironments) Valid() bool {
 	switch e {
-	case CreateScheduleRequestEnvironmentDevelopment:
+	case CreateScheduleRequestEnvironmentsDevelopment:
 		return true
-	case CreateScheduleRequestEnvironmentProduction:
+	case CreateScheduleRequestEnvironmentsProduction:
 		return true
-	case CreateScheduleRequestEnvironmentStaging:
+	case CreateScheduleRequestEnvironmentsStaging:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for ScheduleEnvironment.
+// Defines values for ScheduleEnvironments.
 const (
-	ScheduleEnvironmentDevelopment ScheduleEnvironment = "development"
-	ScheduleEnvironmentProduction  ScheduleEnvironment = "production"
-	ScheduleEnvironmentStaging     ScheduleEnvironment = "staging"
+	ScheduleEnvironmentsDevelopment ScheduleEnvironments = "development"
+	ScheduleEnvironmentsProduction  ScheduleEnvironments = "production"
+	ScheduleEnvironmentsStaging     ScheduleEnvironments = "staging"
 )
 
-// Valid indicates whether the value is a known member of the ScheduleEnvironment enum.
-func (e ScheduleEnvironment) Valid() bool {
+// Valid indicates whether the value is a known member of the ScheduleEnvironments enum.
+func (e ScheduleEnvironments) Valid() bool {
 	switch e {
-	case ScheduleEnvironmentDevelopment:
+	case ScheduleEnvironmentsDevelopment:
 		return true
-	case ScheduleEnvironmentProduction:
+	case ScheduleEnvironmentsProduction:
 		return true
-	case ScheduleEnvironmentStaging:
+	case ScheduleEnvironmentsStaging:
 		return true
 	default:
 		return false
@@ -76,21 +81,42 @@ func (e ScheduleStatus) Valid() bool {
 	}
 }
 
-// Defines values for UpdateScheduleRequestEnvironment.
+// Defines values for UpdateScheduleRequestEnvironments.
 const (
-	UpdateScheduleRequestEnvironmentDevelopment UpdateScheduleRequestEnvironment = "development"
-	UpdateScheduleRequestEnvironmentProduction  UpdateScheduleRequestEnvironment = "production"
-	UpdateScheduleRequestEnvironmentStaging     UpdateScheduleRequestEnvironment = "staging"
+	UpdateScheduleRequestEnvironmentsDevelopment UpdateScheduleRequestEnvironments = "development"
+	UpdateScheduleRequestEnvironmentsProduction  UpdateScheduleRequestEnvironments = "production"
+	UpdateScheduleRequestEnvironmentsStaging     UpdateScheduleRequestEnvironments = "staging"
 )
 
-// Valid indicates whether the value is a known member of the UpdateScheduleRequestEnvironment enum.
-func (e UpdateScheduleRequestEnvironment) Valid() bool {
+// Valid indicates whether the value is a known member of the UpdateScheduleRequestEnvironments enum.
+func (e UpdateScheduleRequestEnvironments) Valid() bool {
 	switch e {
-	case UpdateScheduleRequestEnvironmentDevelopment:
+	case UpdateScheduleRequestEnvironmentsDevelopment:
 		return true
-	case UpdateScheduleRequestEnvironmentProduction:
+	case UpdateScheduleRequestEnvironmentsProduction:
 		return true
-	case UpdateScheduleRequestEnvironmentStaging:
+	case UpdateScheduleRequestEnvironmentsStaging:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UserRole.
+const (
+	UserRoleAdmin    UserRole = "admin"
+	UserRoleDeployer UserRole = "deployer"
+	UserRoleViewer   UserRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the UserRole enum.
+func (e UserRole) Valid() bool {
+	switch e {
+	case UserRoleAdmin:
+		return true
+	case UserRoleDeployer:
+		return true
+	case UserRoleViewer:
 		return true
 	default:
 		return false
@@ -139,16 +165,88 @@ func (e ListSchedulesParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for ListUsersParamsRole.
+const (
+	ListUsersParamsRoleAdmin    ListUsersParamsRole = "admin"
+	ListUsersParamsRoleDeployer ListUsersParamsRole = "deployer"
+	ListUsersParamsRoleViewer   ListUsersParamsRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the ListUsersParamsRole enum.
+func (e ListUsersParamsRole) Valid() bool {
+	switch e {
+	case ListUsersParamsRoleAdmin:
+		return true
+	case ListUsersParamsRoleDeployer:
+		return true
+	case ListUsersParamsRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssignRoleJSONBodyRole.
+const (
+	Admin    AssignRoleJSONBodyRole = "admin"
+	Deployer AssignRoleJSONBodyRole = "deployer"
+	Viewer   AssignRoleJSONBodyRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the AssignRoleJSONBodyRole enum.
+func (e AssignRoleJSONBodyRole) Valid() bool {
+	switch e {
+	case Admin:
+		return true
+	case Deployer:
+		return true
+	case Viewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// AssignScheduleRequest defines model for AssignScheduleRequest.
+type AssignScheduleRequest struct {
+	// AssignedBy User who performed the assignment
+	AssignedBy *string `json:"assignedBy,omitempty"`
+
+	// GroupIds Array of group IDs to assign the schedule to
+	GroupIds []openapi_types.UUID `json:"groupIds"`
+}
+
+// BulkAssignRequest defines model for BulkAssignRequest.
+type BulkAssignRequest struct {
+	// AssignedBy User who performed the assignment
+	AssignedBy *string `json:"assignedBy,omitempty"`
+
+	// ScheduleIds Array of schedule IDs to assign to the group
+	ScheduleIds []openapi_types.UUID `json:"scheduleIds"`
+}
+
+// CreateGroupRequest defines model for CreateGroupRequest.
+type CreateGroupRequest struct {
+	// Description Optional description of the group
+	Description *string `json:"description,omitempty"`
+
+	// Name Name of the group
+	Name string `json:"name"`
+
+	// Owner Owner of the group
+	Owner string `json:"owner"`
+}
+
 // CreateScheduleRequest defines model for CreateScheduleRequest.
 type CreateScheduleRequest struct {
 	// Description Optional description of the deployment
 	Description *string `json:"description,omitempty"`
 
-	// Environment Target environment
-	Environment CreateScheduleRequestEnvironment `json:"environment"`
+	// Environments Target environments
+	Environments []CreateScheduleRequestEnvironments `json:"environments"`
 
-	// Owner Owner of the schedule
-	Owner string `json:"owner"`
+	// Owners Owners of the schedule
+	Owners []string `json:"owners"`
 
 	// RollbackPlan Optional rollback plan for the deployment
 	RollbackPlan *string `json:"rollbackPlan,omitempty"`
@@ -160,8 +258,8 @@ type CreateScheduleRequest struct {
 	ServiceName string `json:"serviceName"`
 }
 
-// CreateScheduleRequestEnvironment Target environment
-type CreateScheduleRequestEnvironment string
+// CreateScheduleRequestEnvironments defines model for CreateScheduleRequest.Environments.
+type CreateScheduleRequestEnvironments string
 
 // Error defines model for Error.
 type Error struct {
@@ -172,22 +270,47 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+// Group defines model for Group.
+type Group struct {
+	// CreatedAt When the group was created
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Description Optional description of the group
+	Description *string `json:"description,omitempty"`
+
+	// Id Unique group identifier
+	Id openapi_types.UUID `json:"id"`
+
+	// Name Name of the group
+	Name string `json:"name"`
+
+	// Owner Owner of the group (immutable after creation)
+	Owner string `json:"owner"`
+
+	// UpdatedAt When the group was last updated
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // Schedule defines model for Schedule.
 type Schedule struct {
 	// CreatedAt When the schedule was created
 	CreatedAt time.Time `json:"createdAt"`
+	CreatedBy User      `json:"createdBy"`
 
 	// Description Optional description of the deployment
 	Description *string `json:"description,omitempty"`
 
-	// Environment Target environment
-	Environment ScheduleEnvironment `json:"environment"`
+	// Environments Target environments
+	Environments []ScheduleEnvironments `json:"environments"`
+
+	// Groups Groups this schedule belongs to
+	Groups *[]Group `json:"groups,omitempty"`
 
 	// Id Unique schedule identifier
 	Id openapi_types.UUID `json:"id"`
 
-	// Owner Owner of the schedule (immutable after creation)
-	Owner string `json:"owner"`
+	// Owners Owners of the schedule
+	Owners []string `json:"owners"`
 
 	// RollbackPlan Optional rollback plan for the deployment
 	RollbackPlan *string `json:"rollbackPlan,omitempty"`
@@ -203,21 +326,34 @@ type Schedule struct {
 
 	// UpdatedAt When the schedule was last updated
 	UpdatedAt time.Time `json:"updatedAt"`
+	UpdatedBy *User     `json:"updatedBy,omitempty"`
 }
 
-// ScheduleEnvironment Target environment
-type ScheduleEnvironment string
+// ScheduleEnvironments defines model for Schedule.Environments.
+type ScheduleEnvironments string
 
 // ScheduleStatus Approval status of the schedule
 type ScheduleStatus string
+
+// UpdateGroupRequest defines model for UpdateGroupRequest.
+type UpdateGroupRequest struct {
+	// Description Optional description of the group
+	Description *string `json:"description,omitempty"`
+
+	// Name Name of the group
+	Name string `json:"name"`
+}
 
 // UpdateScheduleRequest defines model for UpdateScheduleRequest.
 type UpdateScheduleRequest struct {
 	// Description Optional description of the deployment
 	Description *string `json:"description,omitempty"`
 
-	// Environment Target environment
-	Environment *UpdateScheduleRequestEnvironment `json:"environment,omitempty"`
+	// Environments Target environments (replaces entire list)
+	Environments *[]UpdateScheduleRequestEnvironments `json:"environments,omitempty"`
+
+	// Owners Owners of the schedule (replaces entire list)
+	Owners *[]string `json:"owners,omitempty"`
 
 	// RollbackPlan Optional rollback plan for the deployment
 	RollbackPlan *string `json:"rollbackPlan,omitempty"`
@@ -229,8 +365,50 @@ type UpdateScheduleRequest struct {
 	ServiceName *string `json:"serviceName,omitempty"`
 }
 
-// UpdateScheduleRequestEnvironment Target environment
-type UpdateScheduleRequestEnvironment string
+// UpdateScheduleRequestEnvironments defines model for UpdateScheduleRequest.Environments.
+type UpdateScheduleRequestEnvironments string
+
+// User defines model for User.
+type User struct {
+	// CreatedAt When the user was created
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Email User email address
+	Email openapi_types.Email `json:"email"`
+
+	// Id Unique user identifier
+	Id openapi_types.UUID `json:"id"`
+
+	// LastLoginAt When the user last logged in
+	LastLoginAt *time.Time `json:"lastLoginAt,omitempty"`
+
+	// Name User display name
+	Name string `json:"name"`
+
+	// Role User role
+	Role UserRole `json:"role"`
+
+	// UpdatedAt When the user was last updated
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// UserRole User role
+type UserRole string
+
+// GoogleCallbackParams defines parameters for GoogleCallback.
+type GoogleCallbackParams struct {
+	// Code Authorization code from Google
+	Code string `form:"code" json:"code"`
+
+	// State State parameter for CSRF protection
+	State string `form:"state" json:"state"`
+}
+
+// ListGroupsParams defines parameters for ListGroups.
+type ListGroupsParams struct {
+	// Owner Filter groups by owner
+	Owner string `form:"owner" json:"owner"`
+}
 
 // ListSchedulesParams defines parameters for ListSchedules.
 type ListSchedulesParams struct {
@@ -240,14 +418,17 @@ type ListSchedulesParams struct {
 	// To End date for filtering (ISO 8601 format)
 	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
 
-	// Environment Filter by environment
-	Environment *ListSchedulesParamsEnvironment `form:"environment,omitempty" json:"environment,omitempty"`
+	// Environment Filter by environment (can specify multiple)
+	Environment *[]ListSchedulesParamsEnvironment `form:"environment,omitempty" json:"environment,omitempty"`
 
-	// Owner Filter by owner
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+	// Owner Filter by owner (can specify multiple)
+	Owner *[]string `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Status Filter by status
 	Status *ListSchedulesParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// Ungrouped Filter for schedules not assigned to any group
+	Ungrouped *bool `form:"ungrouped,omitempty" json:"ungrouped,omitempty"`
 }
 
 // ListSchedulesParamsEnvironment defines parameters for ListSchedules.
@@ -256,14 +437,80 @@ type ListSchedulesParamsEnvironment string
 // ListSchedulesParamsStatus defines parameters for ListSchedules.
 type ListSchedulesParamsStatus string
 
+// ListUsersParams defines parameters for ListUsers.
+type ListUsersParams struct {
+	// Role Filter by role
+	Role *ListUsersParamsRole `form:"role,omitempty" json:"role,omitempty"`
+}
+
+// ListUsersParamsRole defines parameters for ListUsers.
+type ListUsersParamsRole string
+
+// AssignRoleJSONBody defines parameters for AssignRole.
+type AssignRoleJSONBody struct {
+	// Role New role to assign
+	Role AssignRoleJSONBodyRole `json:"role"`
+}
+
+// AssignRoleJSONBodyRole defines parameters for AssignRole.
+type AssignRoleJSONBodyRole string
+
+// CreateGroupJSONRequestBody defines body for CreateGroup for application/json ContentType.
+type CreateGroupJSONRequestBody = CreateGroupRequest
+
+// UpdateGroupJSONRequestBody defines body for UpdateGroup for application/json ContentType.
+type UpdateGroupJSONRequestBody = UpdateGroupRequest
+
+// BulkAssignSchedulesJSONRequestBody defines body for BulkAssignSchedules for application/json ContentType.
+type BulkAssignSchedulesJSONRequestBody = BulkAssignRequest
+
 // CreateScheduleJSONRequestBody defines body for CreateSchedule for application/json ContentType.
 type CreateScheduleJSONRequestBody = CreateScheduleRequest
 
 // UpdateScheduleJSONRequestBody defines body for UpdateSchedule for application/json ContentType.
 type UpdateScheduleJSONRequestBody = UpdateScheduleRequest
 
+// AssignScheduleToGroupsJSONRequestBody defines body for AssignScheduleToGroups for application/json ContentType.
+type AssignScheduleToGroupsJSONRequestBody = AssignScheduleRequest
+
+// AssignRoleJSONRequestBody defines body for AssignRole for application/json ContentType.
+type AssignRoleJSONRequestBody AssignRoleJSONBody
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Google OAuth callback
+	// (GET /auth/google/callback)
+	GoogleCallback(w http.ResponseWriter, r *http.Request, params GoogleCallbackParams)
+	// Initiate Google OAuth login
+	// (GET /auth/google/login)
+	GoogleLogin(w http.ResponseWriter, r *http.Request)
+	// Logout and revoke token
+	// (POST /auth/logout)
+	Logout(w http.ResponseWriter, r *http.Request)
+	// Refresh JWT token
+	// (POST /auth/refresh)
+	RefreshToken(w http.ResponseWriter, r *http.Request)
+	// List groups for an owner
+	// (GET /groups)
+	ListGroups(w http.ResponseWriter, r *http.Request, params ListGroupsParams)
+	// Create a new group
+	// (POST /groups)
+	CreateGroup(w http.ResponseWriter, r *http.Request)
+	// Delete a group
+	// (DELETE /groups/{id})
+	DeleteGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Get a group by ID
+	// (GET /groups/{id})
+	GetGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Update a group
+	// (PUT /groups/{id})
+	UpdateGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Get schedules in a group
+	// (GET /groups/{id}/schedules)
+	GetSchedulesInGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Bulk assign schedules to group
+	// (POST /groups/{id}/schedules)
+	BulkAssignSchedules(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// List deployment schedules
 	// (GET /schedules)
 	ListSchedules(w http.ResponseWriter, r *http.Request, params ListSchedulesParams)
@@ -285,11 +532,98 @@ type ServerInterface interface {
 	// Deny a schedule
 	// (POST /schedules/{id}/deny)
 	DenySchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Get groups for a schedule
+	// (GET /schedules/{id}/groups)
+	GetGroupsForSchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Assign schedule to groups
+	// (POST /schedules/{id}/groups)
+	AssignScheduleToGroups(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Unassign schedule from group
+	// (DELETE /schedules/{id}/groups/{groupId})
+	UnassignScheduleFromGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, groupId openapi_types.UUID)
+	// List all users (admin only)
+	// (GET /users)
+	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
+	// Get current user profile
+	// (GET /users/me)
+	GetMyProfile(w http.ResponseWriter, r *http.Request)
+	// Get user by ID (admin only)
+	// (GET /users/{id})
+	GetUserByID(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Assign role to user (admin only)
+	// (PUT /users/{id}/role)
+	AssignRole(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// Google OAuth callback
+// (GET /auth/google/callback)
+func (_ Unimplemented) GoogleCallback(w http.ResponseWriter, r *http.Request, params GoogleCallbackParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Initiate Google OAuth login
+// (GET /auth/google/login)
+func (_ Unimplemented) GoogleLogin(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Logout and revoke token
+// (POST /auth/logout)
+func (_ Unimplemented) Logout(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Refresh JWT token
+// (POST /auth/refresh)
+func (_ Unimplemented) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List groups for an owner
+// (GET /groups)
+func (_ Unimplemented) ListGroups(w http.ResponseWriter, r *http.Request, params ListGroupsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a new group
+// (POST /groups)
+func (_ Unimplemented) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete a group
+// (DELETE /groups/{id})
+func (_ Unimplemented) DeleteGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a group by ID
+// (GET /groups/{id})
+func (_ Unimplemented) GetGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update a group
+// (PUT /groups/{id})
+func (_ Unimplemented) UpdateGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get schedules in a group
+// (GET /groups/{id}/schedules)
+func (_ Unimplemented) GetSchedulesInGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Bulk assign schedules to group
+// (POST /groups/{id}/schedules)
+func (_ Unimplemented) BulkAssignSchedules(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // List deployment schedules
 // (GET /schedules)
@@ -333,6 +667,48 @@ func (_ Unimplemented) DenySchedule(w http.ResponseWriter, r *http.Request, id o
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Get groups for a schedule
+// (GET /schedules/{id}/groups)
+func (_ Unimplemented) GetGroupsForSchedule(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Assign schedule to groups
+// (POST /schedules/{id}/groups)
+func (_ Unimplemented) AssignScheduleToGroups(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Unassign schedule from group
+// (DELETE /schedules/{id}/groups/{groupId})
+func (_ Unimplemented) UnassignScheduleFromGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, groupId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List all users (admin only)
+// (GET /users)
+func (_ Unimplemented) ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get current user profile
+// (GET /users/me)
+func (_ Unimplemented) GetMyProfile(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get user by ID (admin only)
+// (GET /users/{id})
+func (_ Unimplemented) GetUserByID(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Assign role to user (admin only)
+// (PUT /users/{id}/role)
+func (_ Unimplemented) AssignRole(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
@@ -342,10 +718,334 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
+// GoogleCallback operation middleware
+func (siw *ServerInterfaceWrapper) GoogleCallback(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GoogleCallbackParams
+
+	// ------------- Required query parameter "code" -------------
+
+	if paramValue := r.URL.Query().Get("code"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		return
+	}
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	// ------------- Required query parameter "state" -------------
+
+	if paramValue := r.URL.Query().Get("state"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		return
+	}
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleCallback(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GoogleLogin operation middleware
+func (siw *ServerInterfaceWrapper) GoogleLogin(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleLogin(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Logout operation middleware
+func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshToken operation middleware
+func (siw *ServerInterfaceWrapper) RefreshToken(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListGroups operation middleware
+func (siw *ServerInterfaceWrapper) ListGroups(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListGroupsParams
+
+	// ------------- Required query parameter "owner" -------------
+
+	if paramValue := r.URL.Query().Get("owner"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner"})
+		return
+	}
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListGroups(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGroup operation middleware
+func (siw *ServerInterfaceWrapper) CreateGroup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGroup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGroup operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGroup operation middleware
+func (siw *ServerInterfaceWrapper) GetGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateGroup operation middleware
+func (siw *ServerInterfaceWrapper) UpdateGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSchedulesInGroup operation middleware
+func (siw *ServerInterfaceWrapper) GetSchedulesInGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSchedulesInGroup(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BulkAssignSchedules operation middleware
+func (siw *ServerInterfaceWrapper) BulkAssignSchedules(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BulkAssignSchedules(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSchedules operation middleware
 func (siw *ServerInterfaceWrapper) ListSchedules(w http.ResponseWriter, r *http.Request) {
 
 	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListSchedulesParams
@@ -368,7 +1068,7 @@ func (siw *ServerInterfaceWrapper) ListSchedules(w http.ResponseWriter, r *http.
 
 	// ------------- Optional query parameter "environment" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "environment", r.URL.Query(), &params.Environment, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "environment", r.URL.Query(), &params.Environment, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "environment", Err: err})
 		return
@@ -376,7 +1076,7 @@ func (siw *ServerInterfaceWrapper) ListSchedules(w http.ResponseWriter, r *http.
 
 	// ------------- Optional query parameter "owner" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
 		return
@@ -387,6 +1087,14 @@ func (siw *ServerInterfaceWrapper) ListSchedules(w http.ResponseWriter, r *http.
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "ungrouped" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ungrouped", r.URL.Query(), &params.Ungrouped, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ungrouped", Err: err})
 		return
 	}
 
@@ -403,6 +1111,12 @@ func (siw *ServerInterfaceWrapper) ListSchedules(w http.ResponseWriter, r *http.
 
 // CreateSchedule operation middleware
 func (siw *ServerInterfaceWrapper) CreateSchedule(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateSchedule(w, r)
@@ -429,6 +1143,12 @@ func (siw *ServerInterfaceWrapper) DeleteSchedule(w http.ResponseWriter, r *http
 		return
 	}
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteSchedule(w, r, id)
 	}))
@@ -453,6 +1173,12 @@ func (siw *ServerInterfaceWrapper) GetSchedule(w http.ResponseWriter, r *http.Re
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
 	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetSchedule(w, r, id)
@@ -479,6 +1205,12 @@ func (siw *ServerInterfaceWrapper) UpdateSchedule(w http.ResponseWriter, r *http
 		return
 	}
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateSchedule(w, r, id)
 	}))
@@ -503,6 +1235,12 @@ func (siw *ServerInterfaceWrapper) ApproveSchedule(w http.ResponseWriter, r *htt
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
 	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ApproveSchedule(w, r, id)
@@ -529,8 +1267,231 @@ func (siw *ServerInterfaceWrapper) DenySchedule(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DenySchedule(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGroupsForSchedule operation middleware
+func (siw *ServerInterfaceWrapper) GetGroupsForSchedule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGroupsForSchedule(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AssignScheduleToGroups operation middleware
+func (siw *ServerInterfaceWrapper) AssignScheduleToGroups(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AssignScheduleToGroups(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnassignScheduleFromGroup operation middleware
+func (siw *ServerInterfaceWrapper) UnassignScheduleFromGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "groupId" -------------
+	var groupId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "groupId", chi.URLParam(r, "groupId"), &groupId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "groupId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnassignScheduleFromGroup(w, r, id, groupId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUsersParams
+
+	// ------------- Optional query parameter "role" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "role", r.URL.Query(), &params.Role, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUsers(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetMyProfile(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUserByID operation middleware
+func (siw *ServerInterfaceWrapper) GetUserByID(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserByID(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AssignRole operation middleware
+func (siw *ServerInterfaceWrapper) AssignRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AssignRole(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -654,6 +1615,39 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/google/callback", wrapper.GoogleCallback)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/google/login", wrapper.GoogleLogin)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/logout", wrapper.Logout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/refresh", wrapper.RefreshToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/groups", wrapper.ListGroups)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/groups", wrapper.CreateGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/groups/{id}", wrapper.DeleteGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/groups/{id}", wrapper.GetGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/groups/{id}", wrapper.UpdateGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/groups/{id}/schedules", wrapper.GetSchedulesInGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/groups/{id}/schedules", wrapper.BulkAssignSchedules)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/schedules", wrapper.ListSchedules)
 	})
 	r.Group(func(r chi.Router) {
@@ -673,6 +1667,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/schedules/{id}/deny", wrapper.DenySchedule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/schedules/{id}/groups", wrapper.GetGroupsForSchedule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/schedules/{id}/groups", wrapper.AssignScheduleToGroups)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/schedules/{id}/groups/{groupId}", wrapper.UnassignScheduleFromGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/users", wrapper.ListUsers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/users/me", wrapper.GetMyProfile)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/users/{id}", wrapper.GetUserByID)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/users/{id}/role", wrapper.AssignRole)
 	})
 
 	return r

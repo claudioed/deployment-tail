@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Deployment-tail is a CRUD tool for managing deployment schedules, built with Go, MySQL, following **Hexagonal Architecture** (Ports & Adapters) and **Domain-Driven Design** principles. The system provides both a REST API and CLI for managing deployment schedules.
+Deployment-tail is a CRUD tool for managing deployment schedules with **Google OAuth authentication** and **role-based access control**. Built with Go, MySQL, following **Hexagonal Architecture** (Ports & Adapters) and **Domain-Driven Design** principles. The system provides both a REST API and CLI for managing deployment schedules.
 
 ## Architecture
 
@@ -36,25 +36,95 @@ internal/
 - Repository interface lives in **domain**, implementation in **adapters/output**
 - Use case interfaces live in **application/ports/input**
 
+### Authentication Architecture
+
+The application uses **Google OAuth 2.0** for authentication and **JWT** for session management:
+
+**Authentication Flow:**
+1. User initiates login → Redirected to Google OAuth
+2. Google validates → Returns authorization code
+3. Application exchanges code → Receives Google access token
+4. Application fetches user profile → Registers/updates user in database
+5. Application issues JWT → Client stores token
+6. Client includes JWT in Authorization header for all requests
+7. Middleware validates JWT → Extracts user context
+
+**Key Components:**
+
+**Domain Layer** (`internal/domain/user/`):
+- `User` aggregate root with `UserID`, `GoogleID`, `Email`, `UserName`, `Role` value objects
+- `user.Repository` interface (port)
+- Domain errors for authentication failures
+
+**Infrastructure** (`internal/infrastructure/`):
+- `oauth.GoogleClient` - OAuth 2.0 flow implementation
+- `jwt.JWTService` - Token generation, validation, refresh
+- `jwt.RevocationStore` - Token blacklist with in-memory cache + DB persistence
+
+**Application Layer** (`internal/application/`):
+- `UserService` - Authentication use cases (register, login, profile, role management)
+- Authorization policies for role-based access control
+- Context-based user extraction for audit trail
+
+**HTTP Middleware** (`internal/adapters/input/http/middleware/`):
+- `AuthenticationMiddleware` - JWT validation, user context injection
+- `RequireRole()` - Role-based authorization
+
+**CLI Authentication** (`internal/adapters/input/cli/`):
+- `auth.go` - Login, logout, status commands
+- `token_store.go` - Secure local token storage (0600 permissions)
+- `client.go` - Automatic JWT injection and refresh
+
+**Token Management:**
+- Default expiry: 24 hours (configurable)
+- Automatic refresh when < 1 hour remaining (CLI)
+- Revocation on logout with server-side blacklist
+- Background sync of revoked tokens (every 60 seconds)
+- Cleanup of expired blacklist entries
+
+**Role-Based Access Control:**
+- **viewer**: Read-only access to schedules
+- **deployer**: Create/update/delete own schedules
+- **admin**: Full access including approval workflow and user management
+
 ### Domain-Driven Design Patterns
 
-**Value Objects** (in `internal/domain/schedule/`):
+**Value Objects**:
+
+*Schedule* (`internal/domain/schedule/`):
 - `ScheduleID` - UUID wrapper with parsing
 - `ScheduledTime` - Time with UTC normalization and validation
 - `ServiceName` - String with validation (non-empty, max 255 chars)
 - `Environment` - Enum (production, staging, development)
 - `Description` - Optional text
 
-**Aggregate Root**:
-- `Schedule` - Encapsulates all business rules
-- All fields are private, accessed via getters
-- `NewSchedule()` - Factory for new schedules
+*User* (`internal/domain/user/`):
+- `UserID` - UUID wrapper
+- `GoogleID` - Google OAuth ID with validation
+- `Email` - Email address with format validation
+- `UserName` - Display name with max length (255 chars)
+- `Role` - Enum (viewer, deployer, admin)
+
+**Aggregate Roots**:
+
+*Schedule*:
+- Encapsulates scheduling business rules
+- All fields private, accessed via getters
+- `NewSchedule(createdBy UserID, ...)` - Factory for new schedules
 - `Reconstitute()` - Factory for loading from storage (bypasses validation)
-- `Update()` - Controlled mutation preserving invariants
+- `Update(updatedBy UserID, ...)` - Controlled mutation with audit trail
+- Ownership checks for authorization
+
+*User*:
+- Encapsulates user identity and role
+- `NewUser(googleID, email, name, role)` - Factory for registration
+- `UpdateLastLogin()` - Track authentication activity
+- `UpdateRole()` - Admin-only role changes
+- Immutable GoogleID for audit trail
 
 **Repository Pattern**:
-- Interface defined in domain: `schedule.Repository`
-- Implementation in adapters: `mysql.ScheduleRepository`
+- Interface defined in domain: `schedule.Repository`, `user.Repository`
+- Implementation in adapters: `mysql.ScheduleRepository`, `mysql.UserRepository`
 - Returns domain entities, never database models
 
 ## Key Development Commands
@@ -208,8 +278,25 @@ All configuration via environment variables (see `.env.example`):
 **Server:**
 - `SERVER_HOST`, `SERVER_PORT`
 
+**Authentication (Google OAuth):**
+- `GOOGLE_CLIENT_ID` - OAuth 2.0 client ID from Google Cloud Console
+- `GOOGLE_CLIENT_SECRET` - OAuth 2.0 client secret
+- `GOOGLE_REDIRECT_URL` - OAuth callback URL (e.g., `http://localhost:8080/auth/google/callback`)
+
+**JWT Configuration:**
+- `JWT_SECRET` - Secret key for signing JWTs (min 32 characters, generate with `openssl rand -base64 32`)
+- `JWT_EXPIRY` - Token expiry duration (e.g., `24h`, `7d`, `168h`)
+- `JWT_ISSUER` - Token issuer identifier (defaults to `deployment-tail`)
+
 **CLI:**
 - `DEPLOYMENT_TAIL_API` - API endpoint for CLI
+
+**Setup Steps:**
+1. Create OAuth 2.0 credentials at https://console.cloud.google.com/apis/credentials
+2. Add authorized redirect URI: `http://localhost:8080/auth/google/callback`
+3. Generate a strong JWT secret: `openssl rand -base64 32`
+4. Copy `.env.example` to `.env` and fill in values
+5. **IMPORTANT:** Never commit `.env` or expose JWT_SECRET/GOOGLE_CLIENT_SECRET
 
 ## Common Gotchas
 
@@ -220,6 +307,11 @@ All configuration via environment variables (see `.env.example`):
 5. **Migrations auto-run:** Server startup runs migrations; no separate step needed
 6. **UTC timestamps:** All time.Time values stored/compared in UTC
 7. **Package naming:** Import alias required for http adapter: `httphandler "github.com/.../http"` to avoid conflict with `net/http`
+8. **Authentication required:** All API endpoints (except `/health` and auth endpoints) require JWT in Authorization header
+9. **JWT secret length:** Must be minimum 32 characters or server will fail validation on startup
+10. **CLI authentication:** CLI commands auto-refresh tokens when < 1 hour to expiry; use `--force-login` to bypass cache
+11. **Audit trail:** All schedule Create/Update operations now require authenticated user context for `createdBy`/`updatedBy` fields
+12. **Role enforcement:** Authorization policies check user role; deployers can only modify own schedules, admins can modify any
 
 ## Entry Points
 

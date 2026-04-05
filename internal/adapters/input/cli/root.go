@@ -25,6 +25,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().BoolVar(&outputJSON, "json", false, "Output in JSON format")
 
 	// Add subcommands
+	rootCmd.AddCommand(NewAuthCmd())
 	rootCmd.AddCommand(NewScheduleCmd())
 
 	return rootCmd

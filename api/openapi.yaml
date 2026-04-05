@@ -8,10 +8,325 @@ servers:
     description: Local development server
 
 paths:
+  /auth/google/login:
+    get:
+      summary: Initiate Google OAuth login
+      operationId: googleLogin
+      tags:
+        - authentication
+      responses:
+        '307':
+          description: Redirect to Google OAuth
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/google/callback:
+    get:
+      summary: Google OAuth callback
+      operationId: googleCallback
+      tags:
+        - authentication
+      parameters:
+        - name: code
+          in: query
+          required: true
+          description: Authorization code from Google
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          description: State parameter for CSRF protection
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - token
+                  - user
+                properties:
+                  token:
+                    type: string
+                    description: JWT token for API authentication
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      summary: Refresh JWT token
+      operationId: refreshToken
+      tags:
+        - authentication
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - token
+                properties:
+                  token:
+                    type: string
+                    description: New JWT token
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized - invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      summary: Logout and revoke token
+      operationId: logout
+      tags:
+        - authentication
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/me:
+    get:
+      summary: Get current user profile
+      operationId: getMyProfile
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users:
+    get:
+      summary: List all users (admin only)
+      operationId: listUsers
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: role
+          in: query
+          description: Filter by role
+          schema:
+            type: string
+            enum: [viewer, deployer, admin]
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/{id}:
+    get:
+      summary: Get user by ID (admin only)
+      operationId: getUserByID
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/{id}/role:
+    put:
+      summary: Assign role to user (admin only)
+      operationId: assignRole
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+                  enum: [viewer, deployer, admin]
+                  description: New role to assign
+      responses:
+        '200':
+          description: Role assigned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /schedules:
     get:
       summary: List deployment schedules
       operationId: listSchedules
+      tags:
+        - schedules
+      security:
+        - bearerAuth: []
       parameters:
         - name: from
           in: query
@@ -27,21 +342,34 @@ paths:
             format: date-time
         - name: environment
           in: query
-          description: Filter by environment
+          description: Filter by environment (can specify multiple)
+          style: form
+          explode: true
           schema:
-            type: string
-            enum: [production, staging, development]
+            type: array
+            items:
+              type: string
+              enum: [production, staging, development]
         - name: owner
           in: query
-          description: Filter by owner
+          description: Filter by owner (can specify multiple)
+          style: form
+          explode: true
           schema:
-            type: string
+            type: array
+            items:
+              type: string
         - name: status
           in: query
           description: Filter by status
           schema:
             type: string
             enum: [created, approved, denied]
+        - name: ungrouped
+          in: query
+          description: Filter for schedules not assigned to any group
+          schema:
+            type: boolean
       responses:
         '200':
           description: List of schedules
@@ -67,6 +395,10 @@ paths:
     post:
       summary: Create a new deployment schedule
       operationId: createSchedule
+      tags:
+        - schedules
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -97,6 +429,10 @@ paths:
     get:
       summary: Get a schedule by ID
       operationId: getSchedule
+      tags:
+        - schedules
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -128,6 +464,10 @@ paths:
     put:
       summary: Update a schedule
       operationId: updateSchedule
+      tags:
+        - schedules
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -171,6 +511,10 @@ paths:
     delete:
       summary: Delete a schedule
       operationId: deleteSchedule
+      tags:
+        - schedules
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -199,6 +543,10 @@ paths:
     post:
       summary: Approve a schedule
       operationId: approveSchedule
+      tags:
+        - schedules
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -237,6 +585,10 @@ paths:
     post:
       summary: Deny a schedule
       operationId: denySchedule
+      tags:
+        - schedules
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -271,19 +623,481 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /groups:
+    get:
+      summary: List groups for an owner
+      operationId: listGroups
+      tags:
+        - groups
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: Filter groups by owner
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      summary: Create a new group
+      operationId: createGroup
+      tags:
+        - groups
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupRequest'
+      responses:
+        '201':
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Group name already exists for this owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /groups/{id}:
+    get:
+      summary: Get a group by ID
+      operationId: getGroup
+      tags:
+        - groups
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Group ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Group details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '404':
+          description: Group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update a group
+      operationId: updateGroup
+      tags:
+        - groups
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Group ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGroupRequest'
+      responses:
+        '200':
+          description: Group updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Group name already exists for this owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete a group
+      operationId: deleteGroup
+      tags:
+        - groups
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Group ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Group deleted
+        '404':
+          description: Group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /schedules/{id}/groups:
+    post:
+
+      summary: Assign schedule to groups
+
+      operationId: assignScheduleToGroups
+
+      tags:
+
+        - schedules
+
+      security:
+
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Schedule ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignScheduleRequest'
+      responses:
+        '200':
+          description: Schedule assigned to groups
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Schedule or group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: Get groups for a schedule
+      operationId: getGroupsForSchedule
+      tags:
+        - schedules
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Schedule ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '404':
+          description: Schedule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /schedules/{id}/groups/{groupId}:
+    delete:
+
+      summary: Unassign schedule from group
+
+      operationId: unassignScheduleFromGroup
+
+      tags:
+
+        - schedules
+
+      security:
+
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Schedule ID
+          schema:
+            type: string
+            format: uuid
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Schedule unassigned from group
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /groups/{id}/schedules:
+    get:
+
+      summary: Get schedules in a group
+
+      operationId: getSchedulesInGroup
+
+      tags:
+
+        - groups
+
+      security:
+
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Group ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of schedule IDs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+        '404':
+          description: Group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      summary: Bulk assign schedules to group
+      operationId: bulkAssignSchedules
+      tags:
+        - groups
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Group ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkAssignRequest'
+      responses:
+        '200':
+          description: Schedules assigned to group
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Group or schedule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from Google OAuth login
+
   schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - role
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique user identifier
+        email:
+          type: string
+          format: email
+          description: User email address
+        name:
+          type: string
+          description: User display name
+        role:
+          type: string
+          enum: [viewer, deployer, admin]
+          description: User role
+        lastLoginAt:
+          type: string
+          format: date-time
+          description: When the user last logged in
+        createdAt:
+          type: string
+          format: date-time
+          description: When the user was created
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the user was last updated
+
     Schedule:
       type: object
       required:
         - id
         - scheduledAt
         - serviceName
-        - environment
-        - owner
+        - environments
+        - owners
         - status
         - createdAt
         - updatedAt
+        - createdBy
       properties:
         id:
           type: string
@@ -296,16 +1110,22 @@ components:
         serviceName:
           type: string
           description: Name of the service to deploy
-        environment:
-          type: string
-          enum: [production, staging, development]
-          description: Target environment
+        environments:
+          type: array
+          description: Target environments
+          minItems: 1
+          items:
+            type: string
+            enum: [production, staging, development]
         description:
           type: string
           description: Optional description of the deployment
-        owner:
-          type: string
-          description: Owner of the schedule (immutable after creation)
+        owners:
+          type: array
+          description: Owners of the schedule
+          minItems: 1
+          items:
+            type: string
         status:
           type: string
           enum: [created, approved, denied]
@@ -321,14 +1141,120 @@ components:
           type: string
           format: date-time
           description: When the schedule was last updated
+        createdBy:
+          $ref: '#/components/schemas/User'
+          description: User who created the schedule
+        updatedBy:
+          $ref: '#/components/schemas/User'
+          description: User who last updated the schedule
+        groups:
+          type: array
+          description: Groups this schedule belongs to
+          items:
+            $ref: '#/components/schemas/Group'
+
+    Group:
+      type: object
+      required:
+        - id
+        - name
+        - owner
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique group identifier
+        name:
+          type: string
+          maxLength: 100
+          description: Name of the group
+        description:
+          type: string
+          maxLength: 500
+          description: Optional description of the group
+        owner:
+          type: string
+          description: Owner of the group (immutable after creation)
+        createdAt:
+          type: string
+          format: date-time
+          description: When the group was created
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the group was last updated
+
+    CreateGroupRequest:
+      type: object
+      required:
+        - name
+        - owner
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Name of the group
+        description:
+          type: string
+          maxLength: 500
+          description: Optional description of the group
+        owner:
+          type: string
+          description: Owner of the group
+
+    UpdateGroupRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Name of the group
+        description:
+          type: string
+          maxLength: 500
+          description: Optional description of the group
+
+    AssignScheduleRequest:
+      type: object
+      required:
+        - groupIds
+      properties:
+        groupIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Array of group IDs to assign the schedule to
+        assignedBy:
+          type: string
+          description: User who performed the assignment
+
+    BulkAssignRequest:
+      type: object
+      required:
+        - scheduleIds
+      properties:
+        scheduleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Array of schedule IDs to assign to the group
+        assignedBy:
+          type: string
+          description: User who performed the assignment
 
     CreateScheduleRequest:
       type: object
       required:
         - scheduledAt
         - serviceName
-        - environment
-        - owner
+        - environments
+        - owners
       properties:
         scheduledAt:
           type: string
@@ -337,16 +1263,22 @@ components:
         serviceName:
           type: string
           description: Name of the service to deploy
-        environment:
-          type: string
-          enum: [production, staging, development]
-          description: Target environment
+        environments:
+          type: array
+          description: Target environments
+          minItems: 1
+          items:
+            type: string
+            enum: [production, staging, development]
         description:
           type: string
           description: Optional description of the deployment
-        owner:
-          type: string
-          description: Owner of the schedule
+        owners:
+          type: array
+          description: Owners of the schedule
+          minItems: 1
+          items:
+            type: string
         rollbackPlan:
           type: string
           description: Optional rollback plan for the deployment
@@ -361,13 +1293,22 @@ components:
         serviceName:
           type: string
           description: Name of the service to deploy
-        environment:
-          type: string
-          enum: [production, staging, development]
-          description: Target environment
+        environments:
+          type: array
+          description: Target environments (replaces entire list)
+          minItems: 1
+          items:
+            type: string
+            enum: [production, staging, development]
         description:
           type: string
           description: Optional description of the deployment
+        owners:
+          type: array
+          description: Owners of the schedule (replaces entire list)
+          minItems: 1
+          items:
+            type: string
         rollbackPlan:
           type: string
           description: Optional rollback plan for the deployment

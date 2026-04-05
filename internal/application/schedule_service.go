@@ -6,20 +6,39 @@ import (
 
 	"github.com/claudioed/deployment-tail/internal/application/ports/input"
 	"github.com/claudioed/deployment-tail/internal/domain/schedule"
+	"github.com/claudioed/deployment-tail/internal/domain/user"
 )
 
 // ScheduleService implements the schedule use cases
 type ScheduleService struct {
-	repo schedule.Repository
+	repo     schedule.Repository
+	userRepo user.Repository
 }
 
 // NewScheduleService creates a new schedule service
-func NewScheduleService(repo schedule.Repository) *ScheduleService {
-	return &ScheduleService{repo: repo}
+func NewScheduleService(repo schedule.Repository, userRepo user.Repository) *ScheduleService {
+	return &ScheduleService{
+		repo:     repo,
+		userRepo: userRepo,
+	}
 }
 
 // CreateSchedule creates a new schedule
-func (s *ScheduleService) CreateSchedule(ctx context.Context, cmd input.CreateScheduleCommand) (*schedule.Schedule, error) {
+func (s *ScheduleService) CreateSchedule(ctx context.Context, cmd input.CreateScheduleCommand, authenticatedUserID user.UserID) (*schedule.Schedule, error) {
+	// Verify user has permission to create schedules
+	authenticatedUser, err := s.userRepo.FindByID(ctx, authenticatedUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find authenticated user: %w", err)
+	}
+
+	if !authenticatedUser.CanCreateSchedule() {
+		return nil, user.ErrUnauthorized{
+			UserID:    authenticatedUserID.String(),
+			Operation: "create schedule",
+			Reason:    "requires deployer or admin role",
+		}
+	}
+
 	// Create value objects with validation
 	scheduledAt, err := schedule.NewScheduledTime(cmd.ScheduledAt)
 	if err != nil {
@@ -31,16 +50,26 @@ func (s *ScheduleService) CreateSchedule(ctx context.Context, cmd input.CreateSc
 		return nil, fmt.Errorf("invalid service name: %w", err)
 	}
 
-	env, err := schedule.NewEnvironment(cmd.Environment)
-	if err != nil {
-		return nil, fmt.Errorf("invalid environment: %w", err)
+	// Parse environments
+	environments := []schedule.Environment{}
+	for _, envStr := range cmd.Environments {
+		env, err := schedule.NewEnvironment(envStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid environment %q: %w", envStr, err)
+		}
+		environments = append(environments, env)
 	}
 
 	desc := schedule.NewDescription(cmd.Description)
 
-	owner, err := schedule.NewOwner(cmd.Owner)
-	if err != nil {
-		return nil, fmt.Errorf("invalid owner: %w", err)
+	// Parse owners
+	owners := []schedule.Owner{}
+	for _, ownerStr := range cmd.Owners {
+		owner, err := schedule.NewOwner(ownerStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid owner %q: %w", ownerStr, err)
+		}
+		owners = append(owners, owner)
 	}
 
 	rollbackPlan, err := schedule.NewRollbackPlan(cmd.RollbackPlan)
@@ -48,8 +77,8 @@ func (s *ScheduleService) CreateSchedule(ctx context.Context, cmd input.CreateSc
 		return nil, fmt.Errorf("invalid rollback plan: %w", err)
 	}
 
-	// Create the schedule aggregate
-	sch, err := schedule.NewSchedule(scheduledAt, serviceName, env, desc, owner, rollbackPlan)
+	// Create the schedule aggregate with createdBy audit field
+	sch, err := schedule.NewSchedule(scheduledAt, serviceName, environments, desc, owners, rollbackPlan, authenticatedUserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create schedule: %w", err)
 	}
@@ -84,22 +113,34 @@ func (s *ScheduleService) ListSchedules(ctx context.Context, query input.ListSch
 		To:   query.To,
 	}
 
-	// Parse environment if provided
-	if query.Environment != nil && *query.Environment != "" {
-		env, err := schedule.NewEnvironment(*query.Environment)
-		if err != nil {
-			return nil, fmt.Errorf("invalid environment filter: %w", err)
+	// Parse environments if provided
+	if len(query.Environments) > 0 {
+		environments := []schedule.Environment{}
+		for _, envStr := range query.Environments {
+			if envStr != "" {
+				env, err := schedule.NewEnvironment(envStr)
+				if err != nil {
+					return nil, fmt.Errorf("invalid environment filter %q: %w", envStr, err)
+				}
+				environments = append(environments, env)
+			}
 		}
-		filters.Environment = &env
+		filters.Environments = environments
 	}
 
-	// Parse owner if provided
-	if query.Owner != nil && *query.Owner != "" {
-		owner, err := schedule.NewOwner(*query.Owner)
-		if err != nil {
-			return nil, fmt.Errorf("invalid owner filter: %w", err)
+	// Parse owners if provided
+	if len(query.Owners) > 0 {
+		owners := []schedule.Owner{}
+		for _, ownerStr := range query.Owners {
+			if ownerStr != "" {
+				owner, err := schedule.NewOwner(ownerStr)
+				if err != nil {
+					return nil, fmt.Errorf("invalid owner filter %q: %w", ownerStr, err)
+				}
+				owners = append(owners, owner)
+			}
 		}
-		filters.Owner = &owner
+		filters.Owners = owners
 	}
 
 	// Parse status if provided
@@ -120,7 +161,13 @@ func (s *ScheduleService) ListSchedules(ctx context.Context, query input.ListSch
 }
 
 // UpdateSchedule updates an existing schedule
-func (s *ScheduleService) UpdateSchedule(ctx context.Context, cmd input.UpdateScheduleCommand) (*schedule.Schedule, error) {
+func (s *ScheduleService) UpdateSchedule(ctx context.Context, cmd input.UpdateScheduleCommand, authenticatedUserID user.UserID) (*schedule.Schedule, error) {
+	// Get authenticated user
+	authenticatedUser, err := s.userRepo.FindByID(ctx, authenticatedUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find authenticated user: %w", err)
+	}
+
 	// Get existing schedule
 	scheduleID, err := schedule.ParseScheduleID(cmd.ID)
 	if err != nil {
@@ -132,10 +179,20 @@ func (s *ScheduleService) UpdateSchedule(ctx context.Context, cmd input.UpdateSc
 		return nil, err
 	}
 
+	// Check ownership: deployer can only update own schedules, admin can update any
+	if !authenticatedUser.CanModifySchedule(sch.CreatedBy()) {
+		return nil, user.ErrUnauthorized{
+			UserID:    authenticatedUserID.String(),
+			Operation: "update schedule",
+			Reason:    "deployers can only update their own schedules",
+		}
+	}
+
 	// Build update values
 	var scheduledAt *schedule.ScheduledTime
 	var serviceName *schedule.ServiceName
-	var environment *schedule.Environment
+	var environments *[]schedule.Environment
+	var owners *[]schedule.Owner
 	var description *schedule.Description
 	var rollbackPlan *schedule.RollbackPlan
 
@@ -155,12 +212,28 @@ func (s *ScheduleService) UpdateSchedule(ctx context.Context, cmd input.UpdateSc
 		serviceName = &sn
 	}
 
-	if cmd.Environment != nil {
-		env, err := schedule.NewEnvironment(*cmd.Environment)
-		if err != nil {
-			return nil, fmt.Errorf("invalid environment: %w", err)
+	if cmd.Environments != nil {
+		envs := []schedule.Environment{}
+		for _, envStr := range *cmd.Environments {
+			env, err := schedule.NewEnvironment(envStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid environment %q: %w", envStr, err)
+			}
+			envs = append(envs, env)
 		}
-		environment = &env
+		environments = &envs
+	}
+
+	if cmd.Owners != nil {
+		ownrs := []schedule.Owner{}
+		for _, ownerStr := range *cmd.Owners {
+			owner, err := schedule.NewOwner(ownerStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid owner %q: %w", ownerStr, err)
+			}
+			ownrs = append(ownrs, owner)
+		}
+		owners = &ownrs
 	}
 
 	if cmd.Description != nil {
@@ -176,8 +249,8 @@ func (s *ScheduleService) UpdateSchedule(ctx context.Context, cmd input.UpdateSc
 		rollbackPlan = &rp
 	}
 
-	// Update the schedule
-	if err := sch.Update(scheduledAt, serviceName, environment, description, rollbackPlan); err != nil {
+	// Update the schedule with updatedBy audit field
+	if err := sch.Update(scheduledAt, serviceName, environments, description, owners, rollbackPlan, authenticatedUserID); err != nil {
 		return nil, fmt.Errorf("failed to update schedule: %w", err)
 	}
 
@@ -190,13 +263,35 @@ func (s *ScheduleService) UpdateSchedule(ctx context.Context, cmd input.UpdateSc
 }
 
 // DeleteSchedule deletes a schedule
-func (s *ScheduleService) DeleteSchedule(ctx context.Context, id string) error {
+func (s *ScheduleService) DeleteSchedule(ctx context.Context, id string, authenticatedUserID user.UserID) error {
+	// Get authenticated user
+	authenticatedUser, err := s.userRepo.FindByID(ctx, authenticatedUserID)
+	if err != nil {
+		return fmt.Errorf("failed to find authenticated user: %w", err)
+	}
+
 	scheduleID, err := schedule.ParseScheduleID(id)
 	if err != nil {
 		return fmt.Errorf("invalid schedule ID: %w", err)
 	}
 
-	if err := s.repo.Delete(ctx, scheduleID); err != nil {
+	// Get schedule to check ownership
+	sch, err := s.repo.FindByID(ctx, scheduleID)
+	if err != nil {
+		return err
+	}
+
+	// Check ownership: deployer can only delete own schedules, admin can delete any
+	if !authenticatedUser.CanModifySchedule(sch.CreatedBy()) {
+		return user.ErrUnauthorized{
+			UserID:    authenticatedUserID.String(),
+			Operation: "delete schedule",
+			Reason:    "deployers can only delete their own schedules",
+		}
+	}
+
+	// Soft delete with deletedBy audit field
+	if err := s.repo.Delete(ctx, scheduleID, authenticatedUserID); err != nil {
 		return fmt.Errorf("failed to delete schedule: %w", err)
 	}
 

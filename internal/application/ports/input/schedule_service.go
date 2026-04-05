@@ -5,15 +5,16 @@ import (
 	"time"
 
 	"github.com/claudioed/deployment-tail/internal/domain/schedule"
+	"github.com/claudioed/deployment-tail/internal/domain/user"
 )
 
 // CreateScheduleCommand represents the command to create a schedule
 type CreateScheduleCommand struct {
 	ScheduledAt  time.Time
 	ServiceName  string
-	Environment  string
+	Environments []string
 	Description  string
-	Owner        string
+	Owners       []string
 	RollbackPlan string
 }
 
@@ -22,18 +23,19 @@ type UpdateScheduleCommand struct {
 	ID           string
 	ScheduledAt  *time.Time
 	ServiceName  *string
-	Environment  *string
+	Environments *[]string
 	Description  *string
+	Owners       *[]string
 	RollbackPlan *string
 }
 
 // ListSchedulesQuery represents the query to list schedules
 type ListSchedulesQuery struct {
-	From        *time.Time
-	To          *time.Time
-	Environment *string
-	Owner       *string
-	Status      *string
+	From         *time.Time
+	To           *time.Time
+	Environments []string
+	Owners       []string
+	Status       *string
 }
 
 // ApproveScheduleCommand represents the command to approve a schedule
@@ -49,7 +51,7 @@ type DenyScheduleCommand struct {
 // ScheduleService defines the inbound port for schedule operations
 type ScheduleService interface {
 	// CreateSchedule creates a new schedule
-	CreateSchedule(ctx context.Context, cmd CreateScheduleCommand) (*schedule.Schedule, error)
+	CreateSchedule(ctx context.Context, cmd CreateScheduleCommand, authenticatedUserID user.UserID) (*schedule.Schedule, error)
 
 	// GetSchedule retrieves a schedule by ID
 	GetSchedule(ctx context.Context, id string) (*schedule.Schedule, error)
@@ -58,10 +60,10 @@ type ScheduleService interface {
 	ListSchedules(ctx context.Context, query ListSchedulesQuery) ([]*schedule.Schedule, error)
 
 	// UpdateSchedule updates an existing schedule
-	UpdateSchedule(ctx context.Context, cmd UpdateScheduleCommand) (*schedule.Schedule, error)
+	UpdateSchedule(ctx context.Context, cmd UpdateScheduleCommand, authenticatedUserID user.UserID) (*schedule.Schedule, error)
 
 	// DeleteSchedule deletes a schedule
-	DeleteSchedule(ctx context.Context, id string) error
+	DeleteSchedule(ctx context.Context, id string, authenticatedUserID user.UserID) error
 
 	// ApproveSchedule approves a schedule
 	ApproveSchedule(ctx context.Context, cmd ApproveScheduleCommand) (*schedule.Schedule, error)

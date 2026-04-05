@@ -1,13 +1,21 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	httphandler "github.com/claudioed/deployment-tail/internal/adapters/input/http"
+	"github.com/claudioed/deployment-tail/internal/adapters/input/http/middleware"
 	"github.com/claudioed/deployment-tail/internal/adapters/output/mysql"
 	"github.com/claudioed/deployment-tail/internal/application"
 	"github.com/claudioed/deployment-tail/internal/infrastructure"
+	"github.com/claudioed/deployment-tail/internal/infrastructure/jwt"
+	"github.com/claudioed/deployment-tail/internal/infrastructure/oauth"
 )
 
 func main() {
@@ -15,6 +23,11 @@ func main() {
 	cfg, err := infrastructure.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
 	}
 
 	// Initialize logger
@@ -38,19 +51,94 @@ func main() {
 
 	logger.Info("Migrations completed successfully")
 
-	// Initialize repository
-	repo := mysql.NewScheduleRepository(db)
+	// Initialize repositories
+	scheduleRepo := mysql.NewScheduleRepository(db)
+	groupRepo := mysql.NewGroupRepository(db)
+	userRepo := mysql.NewUserRepository(db)
 
-	// Initialize application service
-	service := application.NewScheduleService(repo)
+	// Initialize JWT service
+	jwtService, err := jwt.NewJWTService(jwt.Config{
+		Secret: cfg.JWT.Secret,
+		Expiry: cfg.JWT.Expiry,
+		Issuer: cfg.JWT.Issuer,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize JWT service: %v", err)
+	}
+
+	// Initialize token revocation store
+	revocationStore := jwt.NewRevocationStore(db)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := revocationStore.LoadFromDatabase(ctx); err != nil {
+		logger.Errorf("Failed to load revocation blacklist: %v", err)
+	}
+
+	// Start background sync and cleanup
+	go func() {
+		if err := revocationStore.Start(ctx); err != nil {
+			logger.Errorf("Revocation store error: %v", err)
+		}
+	}()
+
+	// Initialize Google OAuth client
+	googleClient, err := oauth.NewGoogleClient(oauth.Config{
+		ClientID:     cfg.OAuth.Google.ClientID,
+		ClientSecret: cfg.OAuth.Google.ClientSecret,
+		RedirectURL:  cfg.OAuth.Google.RedirectURL,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize Google OAuth client: %v", err)
+	}
+
+	// Initialize authentication middleware
+	authMiddleware := middleware.NewAuthenticationMiddleware(jwtService, revocationStore, userRepo)
+
+	// Initialize application services
+	scheduleService := application.NewScheduleService(scheduleRepo, userRepo)
+	groupService := application.NewGroupService(groupRepo, scheduleRepo)
+	userService := application.NewUserService(userRepo, googleClient, jwtService, revocationStore)
+
+	// Initialize auth handler
+	authHandler := httphandler.NewAuthHandler(userService, googleClient)
 
 	// Create HTTP server
-	server := httphandler.NewServer(service)
+	server := httphandler.NewServer(scheduleService, groupService, userService, authHandler, authMiddleware)
 
-	// Start server
+	// Create HTTP server with graceful shutdown
 	addr := cfg.Server.Address()
-	logger.Infof("Server listening on %s", addr)
-	if err := http.ListenAndServe(addr, server); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: server,
 	}
+
+	// Setup graceful shutdown
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
+	// Start server in goroutine
+	go func() {
+		logger.Infof("Server listening on %s", addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-shutdown
+	logger.Info("Shutdown signal received, gracefully stopping server...")
+
+	// Cancel background context to stop revocation store goroutine
+	cancel()
+
+	// Give server 30 seconds to shutdown gracefully
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		logger.Errorf("Server shutdown error: %v", err)
+	}
+
+	logger.Info("Server stopped")
 }
