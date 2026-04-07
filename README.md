@@ -10,6 +10,9 @@ A comprehensive tool for managing deployment schedules with group organization. 
 - **Token Revocation**: Logout functionality with server-side token blacklist
 - **Audit Trail**: Track who created and modified each schedule
 - **Schedule Management**: Create, read, update, and delete deployment schedules
+- **⚡ Quick Create**: Rapidly create schedules with minimal fields (service, environments, time) - ideal for high-velocity teams scheduling 10-20+ deployments per day
+- **📋 Schedule Templates**: Save frequently used schedule configurations as reusable templates with default values
+- **⌨️ Keyboard Shortcuts**: Press 'Q' anywhere to open Quick Create modal for fast scheduling
 - **Multi-Owner Support**: Schedules can have multiple owners for collaborative management
 - **Multi-Environment Deployments**: Schedule deployments across multiple environments simultaneously
 - **Group Organization**: Organize schedules into logical groups (projects, teams, releases)
@@ -22,7 +25,7 @@ A comprehensive tool for managing deployment schedules with group organization. 
 - **Rollback Plans**: Optional rollback plans for operational safety
 - **Web UI**: Modern, responsive web interface with mobile support and color-coded environment badges
 - **REST API**: Full-featured API with OpenAPI 3.0 specification
-- **CLI Tool**: Command-line interface for all operations with multi-value flag support
+- **CLI Tool**: Command-line interface for all operations with multi-value flag support and quick commands
 - **Advanced Filtering**: Filter by date range, multiple environments, multiple owners, status, and groups
 - **Persistent Storage**: MySQL database with automatic migrations
 - **Many-to-Many Relationships**: Schedules can belong to multiple groups
@@ -248,6 +251,95 @@ deployment-tail group unfavorite <group-id>              # Remove from favorites
 deployment-tail auth login --manual
 ```
 
+### Quick Scheduling (CLI)
+
+For high-velocity teams, the `schedule quick` command provides a streamlined way to create schedules with minimal input:
+
+```bash
+# Quick schedule for right now
+deployment-tail schedule quick api-service --env staging --now
+
+# Schedule in 30 minutes
+deployment-tail schedule quick api-service --env staging --in 30
+
+# Schedule in 2 hours
+deployment-tail schedule quick api-service --env production --in-hours 2
+
+# Schedule at specific time today (24-hour format)
+deployment-tail schedule quick api-service --env production --at 14:30
+
+# Multiple environments
+deployment-tail schedule quick api-service \
+  --env staging --env production --in 30
+
+# With optional fields
+deployment-tail schedule quick api-service \
+  --env staging --in 30 \
+  --description "Hotfix deployment" \
+  --rollback "kubectl rollout undo"
+
+# With group assignment (by group IDs)
+deployment-tail schedule quick api-service \
+  --env staging --in 30 \
+  --groups "550e8400-e29b-41d4-a716-446655440000,660e8400-e29b-41d4-a716-446655440001"
+
+# With group assignment (by group names)
+deployment-tail schedule quick api-service \
+  --env staging --in 30 \
+  --groups "Project Alpha,Team Backend"
+```
+
+**Aliases:** `deployment-tail schedule q` (shorthand for `quick`)
+
+**Smart Defaults:**
+- Owner: Automatically set to authenticated user's email
+- Status: Always `created`
+- Time: Defaults to "now" if no time flag specified
+
+### Schedule Templates (CLI)
+
+Templates allow you to save frequently used schedule configurations for quick reuse:
+
+```bash
+# List your templates
+deployment-tail template list
+
+# Create a template
+deployment-tail template create \
+  --name "production-deploy" \
+  --service api-service \
+  --env staging --env production \
+  --time-offset 30 \
+  --description "Standard production deployment"
+
+# Use a template to create a schedule
+deployment-tail template use <template-id>
+
+# Override template values
+deployment-tail template use <template-id> \
+  --now \
+  --description "Emergency hotfix"
+
+# Update a template
+deployment-tail template update <template-id> \
+  --service new-service \
+  --time-offset 60
+
+# Delete a template
+deployment-tail template delete <template-id>
+```
+
+**Time Offsets:**
+- `--time-offset 0` = Schedule for "now"
+- `--time-offset 15` = Schedule 15 minutes from creation
+- `--time-offset 60` = Schedule 1 hour from creation
+
+**Template Features:**
+- User-scoped (each user has their own templates)
+- Unique names per user
+- Store service, environments, owners, rollback plan, and default time offset
+- Override any field when using the template
+
 ### API Authentication
 
 All API endpoints (except `/health` and auth endpoints) require authentication.
@@ -404,6 +496,11 @@ Open your browser and navigate to `http://localhost:8080/` and click "Login with
 The Web UI provides:
 - **Authentication**: Secure Google OAuth login with role-based access
 - **Dashboard**: View all schedules with tab-based filtering
+- **⚡ Quick Create**: Press 'Q' anywhere to open a streamlined schedule creation modal with minimal fields (service, environments, time, optional groups)
+- **📋 Templates**: Save and reuse frequently used schedule configurations with the Templates button
+- **Time Shortcuts**: Quickly schedule for Now, +15min, +30min, +1h, +2h, or pick a custom time
+- **Smart Defaults**: Owner automatically set to current user, status always "created"
+- **Recent Services**: Service name input shows recently used services for quick selection
 - **Group Management**: Create, edit, delete, and favorite groups with star icons
 - **Tab Navigation**: Switch between "All", "Ungrouped", and group-specific views (favorited groups appear first)
 - **Schedule Assignment**: Drag-and-drop or bulk assign schedules to groups
@@ -440,6 +537,18 @@ The Web UI provides:
 - `DELETE /api/v1/schedules/{id}` - Delete a schedule (deployer: own only, admin: any)
 - `POST /api/v1/schedules/{id}/approve` - Approve a schedule (admin only)
 - `POST /api/v1/schedules/{id}/deny` - Deny a schedule (admin only)
+
+### Templates
+
+- `POST /api/v1/templates` - Create a template (deployer, admin)
+- `GET /api/v1/templates` - List user's templates (any authenticated user)
+- `GET /api/v1/templates/{id}` - Get a template by ID (owner only)
+- `PUT /api/v1/templates/{id}` - Update a template (owner only)
+- `DELETE /api/v1/templates/{id}` - Delete a template (owner only)
+
+### Services
+
+- `GET /api/v1/services/recent` - Get recently used service names (any authenticated user)
 
 ### Groups
 
@@ -1025,6 +1134,28 @@ location.reload();
 # Check browser console for JavaScript errors
 # Ensure you're accessing via http://localhost:8080 (not file://)
 ```
+
+### Group Assignment Errors
+
+**"Schedule created but group assignment failed"**
+- The schedule was created successfully but couldn't be assigned to groups
+- Check the schedule ID in the error message and manually assign groups via the UI
+- Verify the groups still exist and you have access to them
+
+**"Group name not found" (CLI)**
+- The group name you specified doesn't exist or you don't have access
+- List available groups: `deployment-tail group list`
+- Use group ID instead of name for automation: `--groups "<uuid>"`
+
+**"Ambiguous group name" (CLI)**
+- Multiple groups match the name you provided
+- The error lists all matching groups with their IDs
+- Use the specific group ID: `--groups "550e8400-e29b-41d4-a716-446655440000"`
+
+**Orphaned schedule after rollback failure**
+- Rare case where schedule creation succeeded, group assignment failed, and deletion also failed
+- The error message includes the orphaned schedule ID
+- Manually delete the schedule via UI or: `deployment-tail schedule delete <id>`
 
 ## Contributing
 

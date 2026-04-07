@@ -1,5 +1,5 @@
 // API Configuration
-const API_BASE_URL = 'http://localhost:8080/api/v1';
+const API_BASE_URL = 'http://localhost:8080';
 
 // Application State
 let currentSchedule = null;
@@ -55,8 +55,7 @@ function setupEventListeners() {
         }
     });
 
-    // Initialize tag inputs for the form
-    initializeFormTagInputs();
+    // Note: initializeFormTagInputs() will be called after TagInput class is loaded
 }
 
 // Initialize tag input components
@@ -91,15 +90,32 @@ function initializeFormTagInputs() {
 async function apiCall(endpoint, options = {}) {
     try {
         showLoading();
+
+        // Get auth token from localStorage
+        const token = localStorage.getItem('auth_token');
+
         const response = await fetch(`${API_BASE_URL}${endpoint}`, {
             headers: {
                 'Content-Type': 'application/json',
+                // Include Authorization header if token exists
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
                 ...options.headers,
             },
             ...options,
         });
 
         if (!response.ok) {
+            // Handle 401 Unauthorized - redirect to login
+            if (response.status === 401) {
+                console.log('Unauthorized - redirecting to login');
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('user_email');
+                localStorage.removeItem('user_name');
+                localStorage.removeItem('user_role');
+                window.location.href = '/auth/google/login';
+                return;
+            }
+
             const error = await response.json();
             throw new Error(error.message || `HTTP error! status: ${response.status}`);
         }
@@ -281,6 +297,14 @@ function displaySchedules(schedules) {
             <td>${formatDateTime(schedule.scheduledAt)}</td>
             <td>${getOwnersDisplay(schedule.owners)}</td>
             <td onclick="event.stopPropagation()">${getStatusIcon(schedule.status)}${getClickableStatusBadge(schedule.status, schedule.id)}</td>
+            <td onclick="event.stopPropagation()">
+                <button class="btn-icon" onclick="quickAssignGroups('${schedule.id}')" title="Add to group">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/>
+                        <circle cx="8" cy="8" r="6.5" stroke="currentColor" fill="none" stroke-width="0.5"/>
+                    </svg>
+                </button>
+            </td>
         </tr>
     `).join('');
 }
@@ -289,6 +313,132 @@ async function loadAndShowDetail(id) {
     const schedule = await getSchedule(id);
     if (schedule) {
         showDetail(schedule);
+    }
+}
+
+// Quick assign groups from list view
+async function quickAssignGroups(scheduleId) {
+    try {
+        // Fetch schedule and groups in parallel
+        const currentUser = getCurrentUser();
+        const [schedule, groupsResponse] = await Promise.all([
+            getSchedule(scheduleId),
+            fetch(`${API_BASE_URL}/groups?owner=${encodeURIComponent(currentUser)}`, {
+                headers: { 'Authorization': `Bearer ${getToken()}` }
+            })
+        ]);
+
+        if (!schedule) {
+            showNotification('Failed to load schedule', 'error');
+            return;
+        }
+
+        // Check if groups request succeeded
+        if (!groupsResponse.ok) {
+            const errorText = await groupsResponse.text();
+            console.error('Failed to fetch groups:', errorText);
+            showNotification('Failed to load groups: ' + (groupsResponse.status === 401 ? 'Not authenticated' : errorText.substring(0, 100)), 'error');
+            return;
+        }
+
+        const groups = await groupsResponse.json();
+
+        // Get currently assigned group IDs
+        const assignedGroupIds = (schedule.groups || []).map(g => g.id);
+
+        // Create modal HTML
+        const modalHtml = `
+            <div class="quick-assign-overlay" id="quick-assign-overlay" onclick="closeQuickAssign(event)">
+                <div class="quick-assign-modal" onclick="event.stopPropagation()">
+                    <div class="quick-assign-header">
+                        <h3>Add to Groups</h3>
+                        <button onclick="closeQuickAssign()" class="modal-close">&times;</button>
+                    </div>
+                    <div class="quick-assign-body">
+                        <p style="margin-bottom: 12px; color: #6b7280; font-size: 14px;">
+                            <strong>${escapeHtml(schedule.serviceName)}</strong> - ${formatDateTime(schedule.scheduledAt)}
+                        </p>
+                        ${groups.length === 0
+                            ? '<p style="color: #6b7280;">No groups available. Create a group first.</p>'
+                            : `<div class="group-quick-list">
+                                ${groups.map(group => {
+                                    const isAssigned = assignedGroupIds.includes(group.id);
+                                    return `
+                                        <label class="group-quick-item ${isAssigned ? 'assigned' : ''}" data-group-id="${group.id}">
+                                            <input type="checkbox"
+                                                ${isAssigned ? 'checked disabled' : ''}
+                                                onchange="handleQuickGroupToggle('${scheduleId}', '${group.id}', this.checked)">
+                                            <span class="group-quick-name">
+                                                ${group.isFavorite ? '<span class="favorite-indicator">★</span> ' : ''}
+                                                ${escapeHtml(group.name)}
+                                            </span>
+                                            ${isAssigned ? '<span class="assigned-badge">✓ Assigned</span>' : ''}
+                                        </label>
+                                    `;
+                                }).join('')}
+                            </div>`
+                        }
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add to DOM
+        const overlay = document.createElement('div');
+        overlay.innerHTML = modalHtml;
+        document.body.appendChild(overlay.firstElementChild);
+
+    } catch (error) {
+        console.error('Quick assign error:', error);
+        showNotification('Failed to load groups: ' + error.message, 'error');
+    }
+}
+
+function closeQuickAssign(event) {
+    if (event && event.target.id !== 'quick-assign-overlay' && !event.target.classList.contains('modal-close')) {
+        return;
+    }
+    const overlay = document.getElementById('quick-assign-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+}
+
+async function handleQuickGroupToggle(scheduleId, groupId, isChecked) {
+    try {
+        if (isChecked) {
+            // Assign to group
+            await fetch(`${API_BASE_URL}/schedules/${scheduleId}/groups`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${getToken()}`
+                },
+                body: JSON.stringify({ groupIds: [groupId], assignedBy: getCurrentUser() })
+            });
+
+            // Update UI - add "assigned" class and check mark
+            const label = document.querySelector(`label[data-group-id="${groupId}"]`);
+            if (label) {
+                label.classList.add('assigned');
+                const checkbox = label.querySelector('input');
+                checkbox.disabled = true;
+                const nameSpan = label.querySelector('.group-quick-name');
+                if (!label.querySelector('.assigned-badge')) {
+                    nameSpan.insertAdjacentHTML('afterend', '<span class="assigned-badge">✓ Assigned</span>');
+                }
+            }
+
+            showNotification('Added to group successfully', 'success');
+
+            // Reload schedules to update the list
+            setTimeout(() => loadSchedules(), 500);
+        }
+    } catch (error) {
+        console.error('Quick assign toggle error:', error);
+        showNotification('Failed to assign group: ' + error.message, 'error');
+        // Revert checkbox
+        event.target.checked = !isChecked;
     }
 }
 
@@ -407,7 +557,7 @@ async function handleFormSubmit(e) {
 
     // Get owners and environments from tag inputs
     const owners = ownerTagInput.getTags();
-    const environments = environmentTagInput.getTags();
+    const environments = environmentTagInput.getEnvironments();
 
     // Validate at least one owner and environment
     if (owners.length === 0) {
@@ -878,7 +1028,7 @@ class GroupController {
             // Refresh schedule details to show updated groups
             const schedule = await getSchedule(currentSchedule.id);
             if (schedule) {
-                showScheduleDetail(schedule);
+                showDetail(schedule);
             }
         } catch (error) {
             showNotification('Failed to assign groups: ' + error.message, 'error');
@@ -915,7 +1065,7 @@ class GroupController {
             // Refresh schedule details
             const schedule = await getSchedule(scheduleId);
             if (schedule) {
-                showScheduleDetail(schedule);
+                showDetail(schedule);
             }
         } catch (error) {
             showNotification('Failed to remove group: ' + error.message, 'error');
@@ -1120,6 +1270,10 @@ function getCurrentUser() {
     return document.getElementById('filter-owner').value || 'system';
 }
 
+function getToken() {
+    return localStorage.getItem('auth_token');
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -1182,9 +1336,9 @@ loadSchedules = async function() {
     }
 };
 
-// Update showScheduleDetail to render group badges
-const originalShowScheduleDetail = showScheduleDetail;
-showScheduleDetail = function(schedule) {
+// Update showDetail to render group badges
+const originalShowScheduleDetail = showDetail;
+showDetail = function(schedule) {
     if (originalShowScheduleDetail) {
         originalShowScheduleDetail(schedule);
     }
@@ -1671,3 +1825,829 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// ========================================
+// Quick Create Modal
+// ========================================
+
+let quickCreateModal;
+let quickCreateForm;
+let selectedTimeOffset = 0;
+let currentUser = null;
+let quickCreateGroups = [];
+let quickCreateGroupsLoading = false;
+
+// Initialize Quick Create on DOM load
+document.addEventListener('DOMContentLoaded', () => {
+    initializeQuickCreate();
+    loadCurrentUser();
+});
+
+function initializeQuickCreate() {
+    quickCreateModal = document.getElementById('quick-create-modal');
+    quickCreateForm = document.getElementById('quick-create-form');
+    
+    // Button handlers
+    document.getElementById('btn-quick-create')?.addEventListener('click', openQuickCreate);
+    document.getElementById('quick-create-close')?.addEventListener('click', closeQuickCreate);
+    document.getElementById('btn-quick-cancel')?.addEventListener('click', closeQuickCreate);
+    document.getElementById('link-full-form')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeQuickCreate();
+        showCreateForm();
+    });
+    
+    // Form submission
+    quickCreateForm?.addEventListener('submit', handleQuickCreateSubmit);
+    
+    // Time offset buttons
+    document.querySelectorAll('.time-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            handleTimeOffsetClick(btn);
+        });
+    });
+    
+    // Keyboard shortcut (Q key)
+    document.addEventListener('keydown', (e) => {
+        // Don't trigger if user is typing in an input
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        
+        if (e.key === 'q' || e.key === 'Q') {
+            e.preventDefault();
+            openQuickCreate();
+        }
+    });
+    
+    // ESC key to close
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !quickCreateModal?.classList.contains('hidden')) {
+            closeQuickCreate();
+        }
+    });
+    
+    // Click outside to close
+    quickCreateModal?.addEventListener('click', (e) => {
+        if (e.target === quickCreateModal) {
+            closeQuickCreate();
+        }
+    });
+}
+
+async function loadCurrentUser() {
+    try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            console.log('No auth token - redirecting to login');
+            window.location.href = '/auth/google/login';
+            return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/users/me`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.status === 401) {
+            console.log('Unauthorized - redirecting to login');
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_email');
+            localStorage.removeItem('user_name');
+            localStorage.removeItem('user_role');
+            window.location.href = '/auth/google/login';
+            return;
+        }
+
+        if (response.ok) {
+            currentUser = await response.json();
+            document.getElementById('quick-current-user').textContent = currentUser.name || currentUser.email;
+        }
+    } catch (error) {
+        console.error('Failed to load current user:', error);
+    }
+}
+
+async function loadRecentServices() {
+    try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) return;
+
+        const response = await fetch(`${API_BASE_URL}/services/recent`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const datalist = document.getElementById('recent-services');
+            datalist.innerHTML = '';
+
+            data.services.forEach(service => {
+                const option = document.createElement('option');
+                option.value = service;
+                datalist.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load recent services:', error);
+    }
+}
+
+// Task 1.2: Fetch user's groups for Quick Create with favorites-first ordering
+async function loadQuickCreateGroups() {
+    const loadingEl = document.getElementById('quick-groups-loading');
+    const emptyEl = document.getElementById('quick-groups-empty');
+    const listEl = document.getElementById('quick-groups-list');
+
+    // Task 1.3: Show loading state
+    loadingEl.classList.remove('hidden');
+    emptyEl.classList.add('hidden');
+    listEl.innerHTML = '';
+    quickCreateGroupsLoading = true;
+
+    try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            quickCreateGroups = [];
+            renderQuickCreateGroups();
+            return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/groups`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            quickCreateGroups = await response.json();
+            // Groups are already ordered with favorites first by the API
+        } else {
+            quickCreateGroups = [];
+        }
+    } catch (error) {
+        console.error('Failed to load groups for Quick Create:', error);
+        quickCreateGroups = [];
+    } finally {
+        quickCreateGroupsLoading = false;
+        loadingEl.classList.add('hidden');
+        renderQuickCreateGroups();
+    }
+}
+
+// Task 1.4: Render checkbox-based multi-select UI with favorite indicators
+// Task 1.5: Show empty state when user has no groups
+// Task 1.6: Implement keyboard navigation support
+function renderQuickCreateGroups() {
+    const emptyEl = document.getElementById('quick-groups-empty');
+    const listEl = document.getElementById('quick-groups-list');
+
+    listEl.innerHTML = '';
+
+    // Task 1.5: Empty state
+    if (!quickCreateGroups || quickCreateGroups.length === 0) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+
+    emptyEl.classList.add('hidden');
+
+    // Task 1.4: Render checkboxes with favorite indicators
+    quickCreateGroups.forEach((group, index) => {
+        const div = document.createElement('div');
+        div.className = 'checkbox-item';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `quick-group-${group.id}`;
+        checkbox.value = group.id;
+        checkbox.name = 'quick-group';
+
+        const label = document.createElement('label');
+        label.htmlFor = `quick-group-${group.id}`;
+
+        // Add favorite indicator
+        const favoriteIcon = group.isFavorite
+            ? '<span class="favorite-indicator" title="Favorite">★</span> '
+            : '';
+
+        label.innerHTML = `
+            ${favoriteIcon}<strong>${escapeHtml(group.name)}</strong>
+            ${group.description ? `<div class="checkbox-item__description">${escapeHtml(group.description)}</div>` : ''}
+        `;
+
+        div.appendChild(checkbox);
+        div.appendChild(label);
+
+        // Task 1.6: Keyboard navigation support
+        checkbox.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const nextCheckbox = listEl.querySelectorAll('input[type="checkbox"]')[index + 1];
+                if (nextCheckbox) nextCheckbox.focus();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prevCheckbox = listEl.querySelectorAll('input[type="checkbox"]')[index - 1];
+                if (prevCheckbox) prevCheckbox.focus();
+            }
+        });
+
+        listEl.appendChild(div);
+    });
+}
+
+async function openQuickCreate() {
+    quickCreateModal.classList.remove('hidden');
+    resetQuickCreateForm();
+    loadRecentServices();
+
+    // Load groups for selection (Task 1.2)
+    await loadQuickCreateGroups();
+
+    // Focus on service input
+    setTimeout(() => {
+        document.getElementById('quick-service')?.focus();
+    }, 100);
+}
+
+function closeQuickCreate() {
+    quickCreateModal.classList.add('hidden');
+    resetQuickCreateForm();
+}
+
+function resetQuickCreateForm() {
+    quickCreateForm.reset();
+    selectedTimeOffset = 0;
+
+    // Reset time buttons
+    document.querySelectorAll('.time-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.offset === '0') {
+            btn.classList.add('active');
+        }
+    });
+
+    // Hide custom time input
+    document.getElementById('quick-time-custom').classList.add('hidden');
+
+    // Reset checkboxes to default (staging checked)
+    document.querySelectorAll('input[name="quick-env"]').forEach(cb => {
+        cb.checked = cb.value === 'staging';
+    });
+
+    // Reset group checkboxes
+    document.querySelectorAll('input[name="quick-group"]').forEach(cb => {
+        cb.checked = false;
+    });
+
+    // Hide loading state
+    document.getElementById('btn-quick-submit').disabled = false;
+    document.querySelector('.btn-text').classList.remove('hidden');
+    document.querySelector('.btn-loading').classList.add('hidden');
+}
+
+function handleTimeOffsetClick(btn) {
+    const offset = btn.dataset.offset;
+    
+    // Update active state
+    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    if (offset === 'custom') {
+        // Show custom time input
+        const customInput = document.getElementById('quick-time-custom');
+        customInput.classList.remove('hidden');
+        customInput.required = true;
+        customInput.focus();
+        selectedTimeOffset = null;
+    } else {
+        // Hide custom time input
+        const customInput = document.getElementById('quick-time-custom');
+        customInput.classList.add('hidden');
+        customInput.required = false;
+        selectedTimeOffset = parseInt(offset);
+    }
+}
+
+async function handleQuickCreateSubmit(e) {
+    e.preventDefault();
+
+    // Get form values
+    const serviceName = document.getElementById('quick-service').value.trim();
+    const selectedEnvs = Array.from(document.querySelectorAll('input[name="quick-env"]:checked'))
+        .map(cb => cb.value);
+
+    // Task 2.1: Get selected group IDs
+    const selectedGroupIds = Array.from(document.querySelectorAll('input[name="quick-group"]:checked'))
+        .map(cb => cb.value);
+
+    // Validation
+    if (!serviceName) {
+        showToast('Service name is required', 'error');
+        return;
+    }
+
+    if (selectedEnvs.length === 0) {
+        showToast('At least one environment is required', 'error');
+        return;
+    }
+
+    // Calculate scheduled time
+    let scheduledAt;
+    if (selectedTimeOffset === null) {
+        // Custom time
+        const customTime = document.getElementById('quick-time-custom').value;
+        if (!customTime) {
+            showToast('Please select a time', 'error');
+            return;
+        }
+        scheduledAt = new Date(customTime).toISOString();
+    } else {
+        // Offset from now
+        const now = new Date();
+        now.setMinutes(now.getMinutes() + selectedTimeOffset);
+        scheduledAt = now.toISOString();
+    }
+
+    // Prepare schedule data with smart defaults
+    const scheduleData = {
+        scheduledAt: scheduledAt,
+        serviceName: serviceName,
+        environments: selectedEnvs,
+        owners: currentUser ? [currentUser.email] : [],
+        description: '',
+        rollbackPlan: ''
+    };
+
+    // Show loading state
+    const submitBtn = document.getElementById('btn-quick-submit');
+    submitBtn.disabled = true;
+    document.querySelector('.btn-text').classList.add('hidden');
+    document.querySelector('.btn-loading').classList.remove('hidden');
+
+    let createdScheduleId = null;
+
+    try {
+        const token = localStorage.getItem('auth_token');
+
+        // Task 2.2: Step 1 - Create schedule
+        const scheduleResponse = await fetch(`${API_BASE_URL}/schedules`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(scheduleData)
+        });
+
+        // Task 2.3: Handle schedule creation failure
+        if (!scheduleResponse.ok) {
+            const error = await scheduleResponse.json();
+            throw new Error(error.message || 'Failed to create schedule');
+        }
+
+        const schedule = await scheduleResponse.json();
+        createdScheduleId = schedule.id;
+
+        // Task 2.2: Step 2 - Assign to groups (if any selected)
+        if (selectedGroupIds.length > 0) {
+            try {
+                const assignmentResponse = await fetch(`${API_BASE_URL}/schedules/${createdScheduleId}/groups`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        groupIds: selectedGroupIds,
+                        assignedBy: currentUser ? currentUser.email : ''
+                    })
+                });
+
+                // Task 2.4: Handle group assignment failure with rollback
+                if (!assignmentResponse.ok) {
+                    const assignError = await assignmentResponse.json();
+
+                    // Attempt to delete the created schedule (rollback)
+                    try {
+                        const deleteResponse = await fetch(`${API_BASE_URL}/schedules/${createdScheduleId}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (!deleteResponse.ok) {
+                            // Task 2.5: Rollback failure - orphaned schedule
+                            console.error('Failed to rollback schedule creation after group assignment failure');
+                            throw new Error(
+                                `Schedule created but group assignment failed. Schedule ID: ${createdScheduleId}. ` +
+                                `Please assign groups manually or delete the schedule. Error: ${assignError.message || 'Unknown error'}`
+                            );
+                        }
+
+                        // Rollback successful
+                        throw new Error(`Failed to assign groups: ${assignError.message || 'Unknown error'}. Schedule creation was rolled back.`);
+
+                    } catch (rollbackError) {
+                        // Re-throw the error (either rollback failure or assignment failure)
+                        throw rollbackError;
+                    }
+                }
+            } catch (groupError) {
+                // Re-throw group assignment or rollback errors
+                throw groupError;
+            }
+        }
+
+        // Task 2.6: Success - close modal and refresh
+        showToast('Schedule created successfully!', 'success');
+        closeQuickCreate();
+
+        // Refresh the schedule list
+        if (typeof loadSchedules === 'function') {
+            loadSchedules();
+        }
+
+    } catch (error) {
+        console.error('Failed to create schedule:', error);
+
+        // Task 2.3 & 2.4: Show error without closing modal
+        showToast(error.message || 'Failed to create schedule', 'error');
+
+        // Task 2.7: Preserve form values - don't reset form
+        // Reset loading state only
+        submitBtn.disabled = false;
+        document.querySelector('.btn-text').classList.remove('hidden');
+        document.querySelector('.btn-loading').classList.add('hidden');
+    }
+}
+
+// ========================================
+// Template Management
+// ========================================
+
+let templatesModal;
+let templateFormModal;
+let templateForm;
+let currentTemplate = null;
+let userTemplates = [];
+
+// Initialize Template Management
+document.addEventListener('DOMContentLoaded', () => {
+    initializeTemplateManagement();
+});
+
+function initializeTemplateManagement() {
+    templatesModal = document.getElementById('templates-modal');
+    templateFormModal = document.getElementById('template-form-modal');
+    templateForm = document.getElementById('template-form');
+    
+    // Button handlers
+    document.getElementById('btn-manage-templates')?.addEventListener('click', openTemplatesModal);
+    document.getElementById('templates-close')?.addEventListener('click', closeTemplatesModal);
+    document.getElementById('btn-create-template')?.addEventListener('click', showCreateTemplateForm);
+    document.getElementById('template-form-close')?.addEventListener('click', closeTemplateFormModal);
+    document.getElementById('btn-template-cancel')?.addEventListener('click', closeTemplateFormModal);
+    
+    // Form submission
+    templateForm?.addEventListener('submit', handleTemplateFormSubmit);
+    
+    // Click outside to close
+    templatesModal?.addEventListener('click', (e) => {
+        if (e.target === templatesModal) {
+            closeTemplatesModal();
+        }
+    });
+    
+    templateFormModal?.addEventListener('click', (e) => {
+        if (e.target === templateFormModal) {
+            closeTemplateFormModal();
+        }
+    });
+}
+
+async function openTemplatesModal() {
+    templatesModal.classList.remove('hidden');
+    await loadTemplates();
+}
+
+function closeTemplatesModal() {
+    templatesModal.classList.add('hidden');
+}
+
+function showCreateTemplateForm() {
+    currentTemplate = null;
+    document.getElementById('template-form-title').textContent = 'Create Template';
+    resetTemplateForm();
+    templateFormModal.classList.remove('hidden');
+}
+
+function showEditTemplateForm(template) {
+    currentTemplate = template;
+    document.getElementById('template-form-title').textContent = 'Edit Template';
+    populateTemplateForm(template);
+    templateFormModal.classList.remove('hidden');
+}
+
+function closeTemplateFormModal() {
+    templateFormModal.classList.add('hidden');
+    resetTemplateForm();
+}
+
+function resetTemplateForm() {
+    templateForm.reset();
+    document.getElementById('template-id').value = '';
+    document.querySelectorAll('input[name="template-env"]').forEach(cb => cb.checked = false);
+}
+
+function populateTemplateForm(template) {
+    document.getElementById('template-id').value = template.id;
+    document.getElementById('template-name').value = template.name;
+    document.getElementById('template-description').value = template.description || '';
+    document.getElementById('template-service').value = template.serviceName || '';
+    document.getElementById('template-rollback').value = template.rollbackPlan || '';
+    document.getElementById('template-time-offset').value = template.defaultTimeOffset;
+    
+    // Set owners
+    if (template.owners && template.owners.length > 0) {
+        document.getElementById('template-owners').value = template.owners.join('; ');
+    }
+    
+    // Set environments
+    document.querySelectorAll('input[name="template-env"]').forEach(cb => {
+        cb.checked = template.environments.includes(cb.value);
+    });
+}
+
+async function loadTemplates() {
+    try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            showToast('Please log in to view templates', 'error');
+            return;
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/templates`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to load templates');
+        }
+        
+        userTemplates = await response.json();
+        renderTemplates();
+    } catch (error) {
+        console.error('Failed to load templates:', error);
+        showToast('Failed to load templates', 'error');
+    }
+}
+
+function renderTemplates() {
+    const templatesList = document.getElementById('templates-list');
+    const templatesEmpty = document.getElementById('templates-empty');
+    
+    if (!userTemplates || userTemplates.length === 0) {
+        templatesList.innerHTML = '';
+        templatesEmpty.classList.remove('hidden');
+        return;
+    }
+    
+    templatesEmpty.classList.add('hidden');
+    
+    templatesList.innerHTML = userTemplates.map(template => `
+        <div class="template-card" data-template-id="${template.id}">
+            <div class="template-header">
+                <h3 class="template-name">${escapeHtml(template.name)}</h3>
+                <div class="template-actions">
+                    <button class="btn-icon btn-use" data-template-id="${template.id}" title="Use this template">
+                        ⚡ Use
+                    </button>
+                    <button class="btn-icon btn-edit" data-template-id="${template.id}" title="Edit template">
+                        ✏️
+                    </button>
+                    <button class="btn-icon btn-delete" data-template-id="${template.id}" title="Delete template">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+            ${template.description ? `<p class="template-description">${escapeHtml(template.description)}</p>` : ''}
+            <div class="template-details">
+                ${template.serviceName ? `<div class="template-detail">
+                    <span class="detail-label">Service:</span>
+                    <span class="detail-value">${escapeHtml(template.serviceName)}</span>
+                </div>` : ''}
+                <div class="template-detail">
+                    <span class="detail-label">Environments:</span>
+                    <span class="detail-value">
+                        ${template.environments.map(env => 
+                            `<span class="badge badge-env-${env}">${env}</span>`
+                        ).join(' ')}
+                    </span>
+                </div>
+                <div class="template-detail">
+                    <span class="detail-label">Time:</span>
+                    <span class="detail-value">${formatTimeOffset(template.defaultTimeOffset)}</span>
+                </div>
+                ${template.owners && template.owners.length > 0 ? `<div class="template-detail">
+                    <span class="detail-label">Owners:</span>
+                    <span class="detail-value">${template.owners.length} owner(s)</span>
+                </div>` : ''}
+            </div>
+        </div>
+    `).join('');
+    
+    // Attach event listeners
+    templatesList.querySelectorAll('.btn-use').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const templateId = btn.dataset.templateId;
+            useTemplate(templateId);
+        });
+    });
+    
+    templatesList.querySelectorAll('.btn-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const templateId = btn.dataset.templateId;
+            const template = userTemplates.find(t => t.id === templateId);
+            if (template) showEditTemplateForm(template);
+        });
+    });
+    
+    templatesList.querySelectorAll('.btn-delete').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const templateId = btn.dataset.templateId;
+            deleteTemplate(templateId);
+        });
+    });
+}
+
+function formatTimeOffset(minutes) {
+    if (minutes === 0) return 'Now';
+    if (minutes < 60) return `+${minutes} minutes`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (remainingMinutes === 0) return `+${hours} hour${hours > 1 ? 's' : ''}`;
+    return `+${hours}h ${remainingMinutes}m`;
+}
+
+async function handleTemplateFormSubmit(e) {
+    e.preventDefault();
+    
+    const templateId = document.getElementById('template-id').value;
+    const name = document.getElementById('template-name').value.trim();
+    const description = document.getElementById('template-description').value.trim();
+    const serviceName = document.getElementById('template-service').value.trim();
+    const rollbackPlan = document.getElementById('template-rollback').value.trim();
+    const defaultTimeOffset = parseInt(document.getElementById('template-time-offset').value);
+    
+    // Get selected environments
+    const environments = Array.from(document.querySelectorAll('input[name="template-env"]:checked'))
+        .map(cb => cb.value);
+    
+    // Get owners
+    const ownersInput = document.getElementById('template-owners').value.trim();
+    const owners = ownersInput ? ownersInput.split(';').map(o => o.trim()).filter(o => o) : [];
+    
+    // Validation
+    if (!name) {
+        showToast('Template name is required', 'error');
+        return;
+    }
+    
+    if (environments.length === 0) {
+        showToast('At least one environment is required', 'error');
+        return;
+    }
+    
+    const templateData = {
+        name,
+        description: description || undefined,
+        serviceName: serviceName || undefined,
+        environments,
+        owners: owners.length > 0 ? owners : undefined,
+        rollbackPlan: rollbackPlan || undefined,
+        defaultTimeOffset
+    };
+    
+    try {
+        const token = localStorage.getItem('auth_token');
+        const url = templateId 
+            ? `${API_BASE_URL}/templates/${templateId}`
+            : `${API_BASE_URL}/templates`;
+        const method = templateId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(templateData)
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to save template');
+        }
+        
+        showToast(`Template ${templateId ? 'updated' : 'created'} successfully!`, 'success');
+        closeTemplateFormModal();
+        await loadTemplates();
+    } catch (error) {
+        console.error('Failed to save template:', error);
+        showToast(error.message || 'Failed to save template', 'error');
+    }
+}
+
+async function deleteTemplate(templateId) {
+    const template = userTemplates.find(t => t.id === templateId);
+    if (!template) return;
+    
+    if (!confirm(`Are you sure you want to delete the template "${template.name}"?`)) {
+        return;
+    }
+    
+    try {
+        const token = localStorage.getItem('auth_token');
+        const response = await fetch(`${API_BASE_URL}/templates/${templateId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to delete template');
+        }
+        
+        showToast('Template deleted successfully', 'success');
+        await loadTemplates();
+    } catch (error) {
+        console.error('Failed to delete template:', error);
+        showToast('Failed to delete template', 'error');
+    }
+}
+
+function useTemplate(templateId) {
+    const template = userTemplates.find(t => t.id === templateId);
+    if (!template) return;
+    
+    // Close templates modal
+    closeTemplatesModal();
+    
+    // Open Quick Create with template data
+    openQuickCreateWithTemplate(template);
+}
+
+function openQuickCreateWithTemplate(template) {
+    // Open Quick Create modal
+    quickCreateModal.classList.remove('hidden');
+    
+    // Pre-fill form with template data
+    if (template.serviceName) {
+        document.getElementById('quick-service').value = template.serviceName;
+    }
+    
+    // Set environments
+    document.querySelectorAll('input[name="quick-env"]').forEach(cb => {
+        cb.checked = template.environments.includes(cb.value);
+    });
+    
+    // Set time offset
+    const timeOffset = template.defaultTimeOffset;
+    selectedTimeOffset = timeOffset;
+    
+    // Update time button states
+    document.querySelectorAll('.time-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.offset === String(timeOffset)) {
+            btn.classList.add('active');
+        }
+    });
+    
+    // Hide custom time input
+    document.getElementById('quick-time-custom').classList.add('hidden');
+    
+    // Focus on service input
+    setTimeout(() => {
+        document.getElementById('quick-service')?.focus();
+    }, 100);
+    
+    showToast(`Using template: ${template.name}`, 'success');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Initialize tag inputs after classes are loaded
+document.addEventListener('DOMContentLoaded', () => {
+    initializeFormTagInputs();
+});

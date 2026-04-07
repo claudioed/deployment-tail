@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/claudioed/deployment-tail/api"
+	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // APIClient wraps HTTP client for API calls
@@ -96,9 +98,9 @@ func (c *APIClient) DenySchedule(ctx context.Context, id string) (*api.Schedule,
 }
 
 // ListGroups retrieves all groups for an owner
-func (c *APIClient) ListGroups(ctx context.Context, owner string) ([]interface{}, error) {
+func (c *APIClient) ListGroups(ctx context.Context, owner string) ([]api.Group, error) {
 	url := fmt.Sprintf("/api/v1/groups?owner=%s", owner)
-	var result []interface{}
+	var result []api.Group
 	err := c.doRequest(ctx, "GET", url, nil, &result)
 	return result, err
 }
@@ -111,6 +113,65 @@ func (c *APIClient) FavoriteGroup(ctx context.Context, groupID string) error {
 // UnfavoriteGroup removes favorite status from a group
 func (c *APIClient) UnfavoriteGroup(ctx context.Context, groupID string) error {
 	return c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/groups/%s/favorite", groupID), nil, nil)
+}
+
+// AssignScheduleToGroups assigns a schedule to multiple groups
+func (c *APIClient) AssignScheduleToGroups(ctx context.Context, scheduleID string, groupIDs []string) error {
+	// Convert string IDs to openapi_types.UUID
+	uuidGroupIDs := make([]openapi_types.UUID, len(groupIDs))
+	for i, id := range groupIDs {
+		parsedUUID, err := uuid.Parse(id)
+		if err != nil {
+			return fmt.Errorf("invalid group ID '%s': %w", id, err)
+		}
+		uuidGroupIDs[i] = parsedUUID
+	}
+
+	req := api.AssignScheduleRequest{
+		GroupIds: uuidGroupIDs,
+	}
+
+	return c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/schedules/%s/groups", scheduleID), req, nil)
+}
+
+// GetRecentServices retrieves recently used service names
+func (c *APIClient) GetRecentServices(ctx context.Context) (*api.RecentServicesResponse, error) {
+	var result api.RecentServicesResponse
+	err := c.doRequest(ctx, "GET", "/api/v1/services/recent", nil, &result)
+	return &result, err
+}
+
+// CreateTemplate creates a new schedule template
+func (c *APIClient) CreateTemplate(ctx context.Context, req api.CreateTemplateRequest) (*api.Template, error) {
+	var result api.Template
+	err := c.doRequest(ctx, "POST", "/api/v1/templates", req, &result)
+	return &result, err
+}
+
+// ListTemplates retrieves all templates for the authenticated user
+func (c *APIClient) ListTemplates(ctx context.Context) ([]api.Template, error) {
+	var result []api.Template
+	err := c.doRequest(ctx, "GET", "/api/v1/templates", nil, &result)
+	return result, err
+}
+
+// GetTemplate retrieves a template by ID
+func (c *APIClient) GetTemplate(ctx context.Context, id string) (*api.Template, error) {
+	var result api.Template
+	err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/templates/%s", id), nil, &result)
+	return &result, err
+}
+
+// UpdateTemplate updates a template
+func (c *APIClient) UpdateTemplate(ctx context.Context, id string, req api.UpdateTemplateRequest) (*api.Template, error) {
+	var result api.Template
+	err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/v1/templates/%s", id), req, &result)
+	return &result, err
+}
+
+// DeleteTemplate deletes a template
+func (c *APIClient) DeleteTemplate(ctx context.Context, id string) error {
+	return c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/templates/%s", id), nil, nil)
 }
 
 // doRequest performs an authenticated HTTP request

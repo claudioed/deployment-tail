@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/claudioed/deployment-tail/api"
 	"github.com/spf13/cobra"
 )
 
@@ -73,12 +74,10 @@ Examples:
 			// Filter favorites if requested
 			filteredGroups := groups
 			if favoritesOnly {
-				filteredGroups = make([]interface{}, 0)
+				filteredGroups = make([]api.Group, 0)
 				for _, g := range groups {
-					if group, ok := g.(map[string]interface{}); ok {
-						if isFav, exists := group["isFavorite"]; exists && isFav == true {
-							filteredGroups = append(filteredGroups, g)
-						}
+					if g.IsFavorite != nil && *g.IsFavorite {
+						filteredGroups = append(filteredGroups, g)
 					}
 				}
 
@@ -91,29 +90,25 @@ Examples:
 			// Print groups with favorite indicator
 			fmt.Printf("Found %d group(s):\n\n", len(filteredGroups))
 			for _, g := range filteredGroups {
-				if group, ok := g.(map[string]interface{}); ok {
-					// Determine if favorite
-					isFavorite := false
-					if isFav, exists := group["isFavorite"]; exists && isFav == true {
-						isFavorite = true
-					}
-
-					// Print with star indicator
-					starIcon := " "
-					if isFavorite {
-						starIcon = "★"
-					}
-
-					fmt.Printf("%s ID: %v\n", starIcon, group["id"])
-					fmt.Printf("  Name: %v\n", group["name"])
-					if owner, ok := group["owner"]; ok {
-						fmt.Printf("  Owner: %v\n", owner)
-					}
-					if desc, ok := group["description"]; ok && desc != nil {
-						fmt.Printf("  Description: %v\n", desc)
-					}
-					fmt.Println()
+				// Determine if favorite
+				isFavorite := false
+				if g.IsFavorite != nil && *g.IsFavorite {
+					isFavorite = true
 				}
+
+				// Print with star indicator
+				starIcon := " "
+				if isFavorite {
+					starIcon = "★"
+				}
+
+				fmt.Printf("%s ID: %v\n", starIcon, g.Id)
+				fmt.Printf("  Name: %v\n", g.Name)
+				fmt.Printf("  Owner: %v\n", g.Owner)
+				if g.Description != nil {
+					fmt.Printf("  Description: %v\n", *g.Description)
+				}
+				fmt.Println()
 			}
 
 			return nil
