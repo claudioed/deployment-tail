@@ -6,48 +6,49 @@ import (
 	"testing"
 	"time"
 
+	"github.com/claudioed/deployment-tail/internal/application/applicationtest"
 	"github.com/claudioed/deployment-tail/internal/application/ports/input"
 	"github.com/claudioed/deployment-tail/internal/domain/schedule"
 	"github.com/claudioed/deployment-tail/internal/domain/user"
 )
 
 // Test helper functions
-func createTestDeployer(t *testing.T, userRepo *MockUserRepository) *user.User {
+func createTestDeployer(t *testing.T, userRepo *applicationtest.MockUserRepository) *user.User {
 	t.Helper()
 	googleID, _ := user.NewGoogleID("deployer123")
 	email, _ := user.NewEmail("deployer@example.com")
 	name, _ := user.NewUserName("Test Deployer")
 	role, _ := user.NewRole(user.RoleDeployer)
 	u, _ := user.NewUser(googleID, email, name, role)
-	userRepo.users[u.ID().String()] = u
+	userRepo.Users[u.ID().String()] = u
 	return u
 }
 
-func createTestAdmin(t *testing.T, userRepo *MockUserRepository) *user.User {
+func createTestAdmin(t *testing.T, userRepo *applicationtest.MockUserRepository) *user.User {
 	t.Helper()
 	googleID, _ := user.NewGoogleID("admin123")
 	email, _ := user.NewEmail("admin@example.com")
 	name, _ := user.NewUserName("Test Admin")
 	role, _ := user.NewRole(user.RoleAdmin)
 	u, _ := user.NewUser(googleID, email, name, role)
-	userRepo.users[u.ID().String()] = u
+	userRepo.Users[u.ID().String()] = u
 	return u
 }
 
-func createTestViewer(t *testing.T, userRepo *MockUserRepository) *user.User {
+func createTestViewer(t *testing.T, userRepo *applicationtest.MockUserRepository) *user.User {
 	t.Helper()
 	googleID, _ := user.NewGoogleID("viewer123")
 	email, _ := user.NewEmail("viewer@example.com")
 	name, _ := user.NewUserName("Test Viewer")
 	role, _ := user.NewRole(user.RoleViewer)
 	u, _ := user.NewUser(googleID, email, name, role)
-	userRepo.users[u.ID().String()] = u
+	userRepo.Users[u.ID().String()] = u
 	return u
 }
 
 func TestCreateSchedule(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer := createTestDeployer(t, userRepo)
 	service := NewScheduleService(repo, userRepo)
 
@@ -75,8 +76,8 @@ func TestCreateSchedule(t *testing.T) {
 }
 
 func TestCreateScheduleWithInvalidEnvironment(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer := createTestDeployer(t, userRepo)
 	service := NewScheduleService(repo, userRepo)
 
@@ -96,8 +97,8 @@ func TestCreateScheduleWithInvalidEnvironment(t *testing.T) {
 }
 
 func TestGetSchedule(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer := createTestDeployer(t, userRepo)
 	service := NewScheduleService(repo, userRepo)
 
@@ -125,8 +126,8 @@ func TestGetSchedule(t *testing.T) {
 }
 
 func TestGetScheduleNotFound(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	service := NewScheduleService(repo, userRepo)
 
 	id := schedule.NewScheduleID()
@@ -139,8 +140,8 @@ func TestGetScheduleNotFound(t *testing.T) {
 }
 
 func TestDeleteSchedule(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer := createTestDeployer(t, userRepo)
 	service := NewScheduleService(repo, userRepo)
 
@@ -169,8 +170,8 @@ func TestDeleteSchedule(t *testing.T) {
 }
 
 func TestCreateSchedule_ViewerUnauthorized(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	viewer := createTestViewer(t, userRepo)
 	service := NewScheduleService(repo, userRepo)
 
@@ -194,8 +195,8 @@ func TestCreateSchedule_ViewerUnauthorized(t *testing.T) {
 }
 
 func TestUpdateSchedule_DeployerCanUpdateOwn(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer := createTestDeployer(t, userRepo)
 	service := NewScheduleService(repo, userRepo)
 
@@ -228,8 +229,8 @@ func TestUpdateSchedule_DeployerCanUpdateOwn(t *testing.T) {
 }
 
 func TestUpdateSchedule_DeployerCannotUpdateOthers(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer1 := createTestDeployer(t, userRepo)
 
 	// Create second deployer
@@ -238,7 +239,7 @@ func TestUpdateSchedule_DeployerCannotUpdateOthers(t *testing.T) {
 	name, _ := user.NewUserName("Test Deployer 2")
 	role, _ := user.NewRole(user.RoleDeployer)
 	deployer2, _ := user.NewUser(googleID, email, name, role)
-	userRepo.users[deployer2.ID().String()] = deployer2
+	userRepo.Users[deployer2.ID().String()] = deployer2
 
 	service := NewScheduleService(repo, userRepo)
 
@@ -271,8 +272,8 @@ func TestUpdateSchedule_DeployerCannotUpdateOthers(t *testing.T) {
 }
 
 func TestUpdateSchedule_AdminCanUpdateAny(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer := createTestDeployer(t, userRepo)
 	admin := createTestAdmin(t, userRepo)
 	service := NewScheduleService(repo, userRepo)
@@ -306,8 +307,8 @@ func TestUpdateSchedule_AdminCanUpdateAny(t *testing.T) {
 }
 
 func TestDeleteSchedule_DeployerCanDeleteOwn(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer := createTestDeployer(t, userRepo)
 	service := NewScheduleService(repo, userRepo)
 
@@ -330,8 +331,8 @@ func TestDeleteSchedule_DeployerCanDeleteOwn(t *testing.T) {
 }
 
 func TestDeleteSchedule_DeployerCannotDeleteOthers(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer1 := createTestDeployer(t, userRepo)
 
 	// Create second deployer
@@ -340,7 +341,7 @@ func TestDeleteSchedule_DeployerCannotDeleteOthers(t *testing.T) {
 	name, _ := user.NewUserName("Test Deployer 2")
 	role, _ := user.NewRole(user.RoleDeployer)
 	deployer2, _ := user.NewUser(googleID, email, name, role)
-	userRepo.users[deployer2.ID().String()] = deployer2
+	userRepo.Users[deployer2.ID().String()] = deployer2
 
 	service := NewScheduleService(repo, userRepo)
 
@@ -367,8 +368,8 @@ func TestDeleteSchedule_DeployerCannotDeleteOthers(t *testing.T) {
 }
 
 func TestDeleteSchedule_AdminCanDeleteAny(t *testing.T) {
-	repo := NewMockRepository()
-	userRepo := NewMockUserRepository()
+	repo := applicationtest.NewMockRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	deployer := createTestDeployer(t, userRepo)
 	admin := createTestAdmin(t, userRepo)
 	service := NewScheduleService(repo, userRepo)

@@ -44,6 +44,20 @@ func (h *UserHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 // GetUserByID retrieves a specific user's profile (admin only)
 // GET /users/{id}
 func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	// Defense-in-depth: enforce admin-only access inside the handler, in
+	// addition to the route-level RequireRole("admin") middleware.
+	authenticatedUser, err := middleware.UserFromContext(r.Context())
+	if err != nil {
+		log.Printf("Error: no authenticated user in context")
+		h.writeErrorResponse(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	if !authenticatedUser.CanManageUsers() {
+		log.Printf("Error: user %s attempted to access GetUserByID without admin role", authenticatedUser.ID().String())
+		h.writeErrorResponse(w, "insufficient permissions", http.StatusForbidden)
+		return
+	}
+
 	// Parse user ID
 	targetUserID, err := user.ParseUserID(id.String())
 	if err != nil {
@@ -71,6 +85,21 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request, id ope
 // ListUsers retrieves all users with optional filtering (admin only)
 // GET /users
 func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request, params api.ListUsersParams) {
+	// Defense-in-depth: enforce admin-only access inside the handler, in
+	// addition to the route-level RequireRole("admin") middleware. If the
+	// middleware is ever misconfigured, this prevents user enumeration.
+	authenticatedUser, err := middleware.UserFromContext(r.Context())
+	if err != nil {
+		log.Printf("Error: no authenticated user in context")
+		h.writeErrorResponse(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	if !authenticatedUser.CanManageUsers() {
+		log.Printf("Error: user %s attempted to list users without admin role", authenticatedUser.ID().String())
+		h.writeErrorResponse(w, "insufficient permissions", http.StatusForbidden)
+		return
+	}
+
 	filters := input.UserListFilters{}
 
 	// Parse role filter from params
@@ -176,10 +205,10 @@ func (h *UserHandler) AssignRole(w http.ResponseWriter, r *http.Request, id open
 
 func (h *UserHandler) userToResponse(u *user.User) map[string]interface{} {
 	response := map[string]interface{}{
-		"id":    u.ID().String(),
-		"email": u.Email().String(),
-		"name":  u.Name().String(),
-		"role":  u.Role().String(),
+		"id":         u.ID().String(),
+		"email":      u.Email().String(),
+		"name":       u.Name().String(),
+		"role":       u.Role().String(),
 		"created_at": u.CreatedAt().Format("2006-01-02T15:04:05Z07:00"),
 		"updated_at": u.UpdatedAt().Format("2006-01-02T15:04:05Z07:00"),
 	}

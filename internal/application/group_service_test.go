@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/claudioed/deployment-tail/internal/application/applicationtest"
 	"github.com/claudioed/deployment-tail/internal/application/ports/input"
 	"github.com/claudioed/deployment-tail/internal/domain/group"
 	"github.com/claudioed/deployment-tail/internal/domain/user"
@@ -14,8 +15,8 @@ import (
 // Test Group Service
 
 func TestCreateGroup(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	cmd := input.CreateGroupCommand{
@@ -44,8 +45,8 @@ func TestCreateGroup(t *testing.T) {
 }
 
 func TestCreateGroupWithDuplicateName(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	cmd := input.CreateGroupCommand{
@@ -60,7 +61,7 @@ func TestCreateGroupWithDuplicateName(t *testing.T) {
 	}
 
 	// Simulate duplicate name error
-	groupRepo.duplicateNameErr = true
+	groupRepo.DuplicateNameErr = true
 
 	// Second creation should fail
 	_, err = service.CreateGroup(context.Background(), cmd)
@@ -70,8 +71,8 @@ func TestCreateGroupWithDuplicateName(t *testing.T) {
 }
 
 func TestCreateGroupWithInvalidName(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	cmd := input.CreateGroupCommand{
@@ -86,8 +87,8 @@ func TestCreateGroupWithInvalidName(t *testing.T) {
 }
 
 func TestGetGroup(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group first
@@ -110,8 +111,8 @@ func TestGetGroup(t *testing.T) {
 }
 
 func TestGetGroupNotFound(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	id := group.NewGroupID()
@@ -124,8 +125,8 @@ func TestGetGroupNotFound(t *testing.T) {
 }
 
 func TestListGroups(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create multiple groups
@@ -153,8 +154,8 @@ func TestListGroups(t *testing.T) {
 }
 
 func TestUpdateGroup(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group
@@ -187,8 +188,8 @@ func TestUpdateGroup(t *testing.T) {
 }
 
 func TestDeleteGroup(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group
@@ -217,8 +218,8 @@ func TestDeleteGroup(t *testing.T) {
 }
 
 func TestAssignScheduleToGroups(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group
@@ -229,13 +230,13 @@ func TestAssignScheduleToGroups(t *testing.T) {
 	grp, _ := service.CreateGroup(context.Background(), groupCmd)
 
 	// Create a schedule
-	userRepo := NewMockUserRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	googleID, _ := user.NewGoogleID("deployer123")
 	email, _ := user.NewEmail("deployer@example.com")
 	name, _ := user.NewUserName("Test Deployer")
 	role, _ := user.NewRole(user.RoleDeployer)
 	deployer, _ := user.NewUser(googleID, email, name, role)
-	userRepo.users[deployer.ID().String()] = deployer
+	userRepo.Users[deployer.ID().String()] = deployer
 
 	schedCmd := input.CreateScheduleCommand{
 		ScheduledAt:  time.Now().Add(24 * time.Hour),
@@ -271,8 +272,8 @@ func TestAssignScheduleToGroups(t *testing.T) {
 }
 
 func TestUnassignScheduleFromGroup(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group
@@ -283,13 +284,13 @@ func TestUnassignScheduleFromGroup(t *testing.T) {
 	grp, _ := service.CreateGroup(context.Background(), groupCmd)
 
 	// Create a schedule
-	userRepo := NewMockUserRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 	googleID, _ := user.NewGoogleID("deployer123")
 	email, _ := user.NewEmail("deployer@example.com")
 	name, _ := user.NewUserName("Test Deployer")
 	role, _ := user.NewRole(user.RoleDeployer)
 	deployer, _ := user.NewUser(googleID, email, name, role)
-	userRepo.users[deployer.ID().String()] = deployer
+	userRepo.Users[deployer.ID().String()] = deployer
 
 	schedCmd := input.CreateScheduleCommand{
 		ScheduledAt:  time.Now().Add(24 * time.Hour),
@@ -329,8 +330,8 @@ func TestUnassignScheduleFromGroup(t *testing.T) {
 // Favorite operations tests
 
 func TestFavoriteGroup(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group
@@ -360,8 +361,8 @@ func TestFavoriteGroup(t *testing.T) {
 }
 
 func TestFavoriteGroupInvalidUserID(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group
@@ -379,8 +380,8 @@ func TestFavoriteGroupInvalidUserID(t *testing.T) {
 }
 
 func TestFavoriteGroupInvalidGroupID(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	userID := user.NewUserID()
@@ -393,8 +394,8 @@ func TestFavoriteGroupInvalidGroupID(t *testing.T) {
 }
 
 func TestFavoriteGroupNotFound(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	userID := user.NewUserID()
@@ -408,8 +409,8 @@ func TestFavoriteGroupNotFound(t *testing.T) {
 }
 
 func TestUnfavoriteGroup(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group
@@ -441,8 +442,8 @@ func TestUnfavoriteGroup(t *testing.T) {
 }
 
 func TestUnfavoriteGroupIdempotent(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create a group
@@ -462,8 +463,8 @@ func TestUnfavoriteGroupIdempotent(t *testing.T) {
 }
 
 func TestListGroupsWithFavorites(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	// Create multiple groups
@@ -529,8 +530,8 @@ func TestListGroupsWithFavorites(t *testing.T) {
 }
 
 func TestListGroupsWithFavoritesInvalidUserID(t *testing.T) {
-	groupRepo := NewMockGroupRepository()
-	scheduleRepo := NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	scheduleRepo := applicationtest.NewMockRepository()
 	service := NewGroupService(groupRepo, scheduleRepo)
 
 	query := input.ListGroupsQuery{

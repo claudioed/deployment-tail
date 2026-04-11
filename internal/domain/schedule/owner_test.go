@@ -80,3 +80,29 @@ func TestOwner_Equals(t *testing.T) {
 		t.Error("Expected owner1 to not equal owner3")
 	}
 }
+
+func TestOwner_BoundaryValues(t *testing.T) {
+	// Test exactly at max length (255 characters)
+	maxLength := strings.Repeat("a", 255)
+	owner, err := NewOwner(maxLength)
+	if err != nil {
+		t.Errorf("Owner with exactly 255 characters should be valid, got error: %v", err)
+	}
+	if owner.String() != maxLength {
+		t.Error("Owner value should match input at max length")
+	}
+
+	// Test one character over max length (256 characters)
+	overMax := strings.Repeat("a", 256)
+	_, err = NewOwner(overMax)
+	if err == nil {
+		t.Error("Owner with 256 characters should fail validation")
+	}
+
+	// Test one character (minimum valid)
+	minLength := "a"
+	owner, err = NewOwner(minLength)
+	if err != nil {
+		t.Errorf("Owner with 1 character should be valid, got error: %v", err)
+	}
+}

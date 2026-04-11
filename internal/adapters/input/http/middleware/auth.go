@@ -178,3 +178,13 @@ func UserIDFromContext(ctx context.Context) (string, error) {
 	}
 	return u.ID().String(), nil
 }
+
+// GetUserIDFromContext extracts the authenticated user.UserID from the request context
+// Returns the UserID and a boolean indicating success
+func GetUserIDFromContext(ctx context.Context) (user.UserID, bool) {
+	u, err := UserFromContext(ctx)
+	if err != nil {
+		return user.UserID{}, false
+	}
+	return u.ID(), true
+}

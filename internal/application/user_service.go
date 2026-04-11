@@ -202,16 +202,15 @@ func (s *UserService) RefreshUserToken(ctx context.Context, userID user.UserID) 
 
 // RevokeUserToken revokes a specific token
 func (s *UserService) RevokeUserToken(ctx context.Context, tokenHash string, userID user.UserID) error {
-	// Parse claims to get expiry
+	// Parse claims to get expiry. If the token is malformed, refuse the
+	// revocation with a clear error instead of panicking by dereferencing
+	// a nil claims pointer.
 	claims, err := s.jwtService.ParseClaims(tokenHash)
 	if err != nil {
-		// If we can't parse it, we can't revoke it properly
-		// But we can still try to add it to blacklist with a default expiry
-		expiresAt := claims.ExpiresAt.Time
-		if claims.ExpiresAt == nil {
-			expiresAt = claims.ExpiresAt.Time
-		}
-		return s.revocationStore.AddToBlacklist(ctx, s.jwtService.HashToken(tokenHash), userID.String(), expiresAt)
+		return fmt.Errorf("failed to parse token claims: %w", err)
+	}
+	if claims == nil || claims.ExpiresAt == nil {
+		return fmt.Errorf("invalid token claims: missing expiry")
 	}
 
 	// Add to revocation blacklist

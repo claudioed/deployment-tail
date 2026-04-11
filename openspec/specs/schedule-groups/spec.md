@@ -2,15 +2,25 @@
 
 ### Requirement: Create schedule group
 
-The system SHALL allow users to create custom schedule groups with a name and optional description.
+The system SHALL allow users to create custom schedule groups with a name, optional description, and visibility setting.
 
 #### Scenario: Create group with name
 - **WHEN** user creates a group with name "Project Alpha"
-- **THEN** system creates group and returns group ID
+- **THEN** system creates group with default visibility "private" and returns group ID
 
 #### Scenario: Create group with name and description
 - **WHEN** user creates a group with name "Q1 Releases" and description "All releases planned for Q1 2026"
 - **THEN** system creates group with both name and description
+
+#### Scenario: Create public group
+- **WHEN** user creates a group with visibility set to "public"
+- **THEN** system creates group with visibility "public"
+- **AND** group is visible to all authenticated users
+
+#### Scenario: Create private group explicitly
+- **WHEN** user creates a group with visibility set to "private"
+- **THEN** system creates group with visibility "private"
+- **AND** group is visible only to owner
 
 #### Scenario: Validate group name required
 - **WHEN** user attempts to create group without a name
@@ -20,17 +30,29 @@ The system SHALL allow users to create custom schedule groups with a name and op
 - **WHEN** user attempts to create group with name longer than 100 characters
 - **THEN** system returns validation error "Group name must be 100 characters or less"
 
+#### Scenario: Validate visibility value
+- **WHEN** user attempts to create group with invalid visibility value
+- **THEN** system returns validation error "Visibility must be 'public' or 'private'"
+
 #### Scenario: Set group owner on creation
 - **WHEN** user creates a group
 - **THEN** system sets the creating user as the group owner
 
 ### Requirement: List schedule groups
 
-The system SHALL allow users to retrieve all schedule groups, with favorited groups returned first for authenticated users.
+The system SHALL allow users to retrieve accessible schedule groups (public groups + user's private groups), with favorited groups returned first.
 
-#### Scenario: List all groups
+#### Scenario: List accessible groups
 - **WHEN** user requests list of groups
-- **THEN** system returns all groups with id, name, description, owner, created_at, updated_at
+- **THEN** system returns all public groups plus user's private groups
+
+#### Scenario: Public groups visible to all users
+- **WHEN** user requests list of groups
+- **THEN** response includes all groups with visibility "public" regardless of owner
+
+#### Scenario: Private groups visible only to owner
+- **WHEN** user requests list of groups
+- **THEN** response includes only private groups where user is the owner
 
 #### Scenario: List groups with favorites first
 - **WHEN** authenticated user requests list of groups
@@ -41,12 +63,12 @@ The system SHALL allow users to retrieve all schedule groups, with favorited gro
 - **THEN** favorited groups are ordered alphabetically by name, and non-favorited groups are ordered alphabetically by name
 
 #### Scenario: Empty groups list
-- **WHEN** no groups exist and user requests list
+- **WHEN** no accessible groups exist and user requests list
 - **THEN** system returns empty array
 
-#### Scenario: Include isFavorite field for authenticated users
+#### Scenario: Include isFavorite and visibility fields
 - **WHEN** authenticated user requests list of groups
-- **THEN** system includes isFavorite boolean field for each group
+- **THEN** system includes isFavorite boolean and visibility field for each group
 
 ### Requirement: Get schedule group by ID
 
@@ -62,7 +84,7 @@ The system SHALL allow users to retrieve a specific group by ID.
 
 ### Requirement: Update schedule group
 
-The system SHALL allow users to update group name and description.
+The system SHALL allow users to update group name, description, and visibility.
 
 #### Scenario: Update group name
 - **WHEN** user updates group name from "Project Alpha" to "Project Beta"
@@ -72,17 +94,30 @@ The system SHALL allow users to update group name and description.
 - **WHEN** user updates group description
 - **THEN** system updates description and returns updated group
 
-#### Scenario: Update group name and description
-- **WHEN** user updates both name and description
-- **THEN** system updates both fields and returns updated group
+#### Scenario: Update group visibility
+- **WHEN** user updates group visibility from "private" to "public"
+- **THEN** system updates visibility and returns updated group
+- **AND** group becomes visible to all users
+
+#### Scenario: Update multiple fields
+- **WHEN** user updates name, description, and visibility
+- **THEN** system updates all fields and returns updated group
 
 #### Scenario: Cannot update group owner
 - **WHEN** user attempts to update group owner
 - **THEN** system ignores owner field (owner is immutable)
 
+#### Scenario: Non-owner cannot update group
+- **WHEN** non-owner attempts to update a group
+- **THEN** system returns 403 Forbidden
+
 #### Scenario: Validate updated name length
 - **WHEN** user updates group name to exceed 100 characters
 - **THEN** system returns validation error
+
+#### Scenario: Validate updated visibility value
+- **WHEN** user updates group visibility to invalid value
+- **THEN** system returns validation error "Visibility must be 'public' or 'private'"
 
 ### Requirement: Delete schedule group
 
@@ -127,6 +162,30 @@ The system SHALL include the count of schedules in each group.
 #### Scenario: Empty group shows zero count
 - **WHEN** user retrieves group with no schedules
 - **THEN** system includes scheduleCount=0 in response
+
+### Requirement: Group visibility affects access control
+
+The system SHALL enforce visibility-based access control for group operations.
+
+#### Scenario: Owner can access own private group
+- **WHEN** user requests their own private group by ID
+- **THEN** system returns group details
+
+#### Scenario: Non-owner cannot access private group
+- **WHEN** user requests another user's private group by ID
+- **THEN** system returns 404 Not Found
+
+#### Scenario: Any user can access public group
+- **WHEN** user requests a public group by ID
+- **THEN** system returns group details regardless of owner
+
+#### Scenario: Owner can delete own private group
+- **WHEN** user deletes their own private group
+- **THEN** system removes group and associations
+
+#### Scenario: Non-owner cannot delete private group
+- **WHEN** user attempts to delete another user's private group
+- **THEN** system returns 403 Forbidden or 404 Not Found
 
 ## Notes
 

@@ -114,6 +114,7 @@ func TestGetMyProfile_NoUserInContext(t *testing.T) {
 }
 
 func TestGetUserByID_Success(t *testing.T) {
+	admin := createUserForTest(user.RoleAdmin)
 	targetUser := createUserForTest(user.RoleDeployer)
 
 	mockService := &MockUserServiceForHandler{
@@ -127,7 +128,8 @@ func TestGetUserByID_Success(t *testing.T) {
 
 	handler := NewUserHandler(mockService)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/"+targetUser.ID().String(), nil)
+	ctx := middleware.UserToContext(context.Background(), admin)
+	req := httptest.NewRequest(http.MethodGet, "/users/"+targetUser.ID().String(), nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
 	targetUUID, _ := uuid.Parse(targetUser.ID().String())
@@ -148,20 +150,31 @@ func TestGetUserByID_Success(t *testing.T) {
 }
 
 func TestGetUserByID_InvalidID(t *testing.T) {
-	handler := NewUserHandler(nil)
+	admin := createUserForTest(user.RoleAdmin)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/invalid-id", nil)
+	// The zero UUID parses as a valid UUID, so the handler reaches the
+	// service layer. Return "not found" to exercise the error-path mapping.
+	mockService := &MockUserServiceForHandler{
+		getUserProfileFunc: func(ctx context.Context, userID user.UserID) (*user.User, error) {
+			return nil, user.ErrUserNotFound{ID: userID.String(), SearchType: "id"}
+		},
+	}
+	handler := NewUserHandler(mockService)
+
+	ctx := middleware.UserToContext(context.Background(), admin)
+	req := httptest.NewRequest(http.MethodGet, "/users/invalid-id", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
-	// Pass an invalid UUID (all zeros to simulate parse failure)
+	// Pass the zero UUID; it is syntactically valid so the service returns not found.
 	handler.GetUserByID(rr, req, openapi_types.UUID{})
 
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected status %d, got %d", http.StatusNotFound, rr.Code)
 	}
 }
 
 func TestGetUserByID_UserNotFound(t *testing.T) {
+	admin := createUserForTest(user.RoleAdmin)
 	testUserID := user.NewUserID()
 
 	mockService := &MockUserServiceForHandler{
@@ -172,7 +185,8 @@ func TestGetUserByID_UserNotFound(t *testing.T) {
 
 	handler := NewUserHandler(mockService)
 
-	req := httptest.NewRequest(http.MethodGet, "/users/"+testUserID.String(), nil)
+	ctx := middleware.UserToContext(context.Background(), admin)
+	req := httptest.NewRequest(http.MethodGet, "/users/"+testUserID.String(), nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
 	testUUID, _ := uuid.Parse(testUserID.String())
@@ -184,6 +198,7 @@ func TestGetUserByID_UserNotFound(t *testing.T) {
 }
 
 func TestListUsers_Success(t *testing.T) {
+	admin := createUserForTest(user.RoleAdmin)
 	user1 := createUserForTest(user.RoleViewer)
 	user2 := createUserForTest(user.RoleDeployer)
 	user3 := createUserForTest(user.RoleAdmin)
@@ -196,7 +211,8 @@ func TestListUsers_Success(t *testing.T) {
 
 	handler := NewUserHandler(mockService)
 
-	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	ctx := middleware.UserToContext(context.Background(), admin)
+	req := httptest.NewRequest(http.MethodGet, "/users", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
 	handler.ListUsers(rr, req, api.ListUsersParams{})
@@ -230,7 +246,8 @@ func TestListUsers_WithRoleFilter(t *testing.T) {
 
 	handler := NewUserHandler(mockService)
 
-	req := httptest.NewRequest(http.MethodGet, "/users?role=admin", nil)
+	ctx := middleware.UserToContext(context.Background(), admin)
+	req := httptest.NewRequest(http.MethodGet, "/users?role=admin", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
 	roleAdmin := api.ListUsersParamsRoleAdmin
@@ -255,9 +272,11 @@ func TestListUsers_WithRoleFilter(t *testing.T) {
 }
 
 func TestListUsers_InvalidRoleFilter(t *testing.T) {
+	admin := createUserForTest(user.RoleAdmin)
 	handler := NewUserHandler(nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/users?role=invalid-role", nil)
+	ctx := middleware.UserToContext(context.Background(), admin)
+	req := httptest.NewRequest(http.MethodGet, "/users?role=invalid-role", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
 	invalidRole := api.ListUsersParamsRole("invalid-role")
@@ -342,7 +361,14 @@ func TestAssignRole_NoUserInContext(t *testing.T) {
 func TestAssignRole_InvalidUserID(t *testing.T) {
 	admin := createUserForTest(user.RoleAdmin)
 
-	handler := NewUserHandler(nil)
+	// The zero UUID parses as a valid UUID, so the handler reaches the
+	// service layer. Return "not found" to exercise the error-path mapping.
+	mockService := &MockUserServiceForHandler{
+		assignRoleFunc: func(ctx context.Context, adminUserID, targetUserID user.UserID, newRole user.Role) error {
+			return user.ErrUserNotFound{ID: targetUserID.String(), SearchType: "id"}
+		},
+	}
+	handler := NewUserHandler(mockService)
 
 	requestBody := map[string]string{"role": user.RoleDeployer}
 	bodyBytes, _ := json.Marshal(requestBody)
@@ -351,11 +377,11 @@ func TestAssignRole_InvalidUserID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/users/invalid-id/role", bytes.NewReader(bodyBytes)).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
-	// Pass an invalid UUID (all zeros to simulate parse failure)
+	// Pass the zero UUID; it is syntactically valid so the service returns not found.
 	handler.AssignRole(rr, req, openapi_types.UUID{})
 
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected status %d, got %d", http.StatusNotFound, rr.Code)
 	}
 }
 

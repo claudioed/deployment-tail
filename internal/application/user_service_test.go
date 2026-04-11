@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/claudioed/deployment-tail/internal/application/applicationtest"
 	"github.com/claudioed/deployment-tail/internal/application/ports/input"
 	"github.com/claudioed/deployment-tail/internal/domain/user"
 )
 
 func TestRegisterOrUpdateUser_NewUser(t *testing.T) {
-	repo := NewMockUserRepository()
+	repo := applicationtest.NewMockUserRepository()
 	service := NewUserService(repo, nil, nil, nil)
 
 	ctx := context.Background()
@@ -24,8 +25,8 @@ func TestRegisterOrUpdateUser_NewUser(t *testing.T) {
 	}
 
 	// Verify user was saved
-	if len(repo.users) != 1 {
-		t.Errorf("Expected 1 user in repository, got %d", len(repo.users))
+	if len(repo.Users) != 1 {
+		t.Errorf("Expected 1 user in repository, got %d", len(repo.Users))
 	}
 
 	// New users should have viewer role by default
@@ -35,7 +36,7 @@ func TestRegisterOrUpdateUser_NewUser(t *testing.T) {
 }
 
 func TestRegisterOrUpdateUser_ExistingUser(t *testing.T) {
-	repo := NewMockUserRepository()
+	repo := applicationtest.NewMockUserRepository()
 	service := NewUserService(repo, nil, nil, nil)
 
 	ctx := context.Background()
@@ -65,13 +66,13 @@ func TestRegisterOrUpdateUser_ExistingUser(t *testing.T) {
 	}
 
 	// Should still only have one user
-	if len(repo.users) != 1 {
-		t.Errorf("Expected 1 user in repository, got %d", len(repo.users))
+	if len(repo.Users) != 1 {
+		t.Errorf("Expected 1 user in repository, got %d", len(repo.Users))
 	}
 }
 
 func TestGetUserProfile(t *testing.T) {
-	repo := NewMockUserRepository()
+	repo := applicationtest.NewMockUserRepository()
 	service := NewUserService(repo, nil, nil, nil)
 
 	ctx := context.Background()
@@ -82,7 +83,7 @@ func TestGetUserProfile(t *testing.T) {
 	name, _ := user.NewUserName("Test User")
 	role, _ := user.NewRole(user.RoleDeployer)
 	u, _ := user.NewUser(googleID, email, name, role)
-	repo.users[u.ID().String()] = u
+	repo.Users[u.ID().String()] = u
 
 	// Get profile
 	retrieved, err := service.GetUserProfile(ctx, u.ID())
@@ -96,7 +97,7 @@ func TestGetUserProfile(t *testing.T) {
 }
 
 func TestGetUserProfile_NotFound(t *testing.T) {
-	repo := NewMockUserRepository()
+	repo := applicationtest.NewMockUserRepository()
 	service := NewUserService(repo, nil, nil, nil)
 
 	ctx := context.Background()
@@ -109,7 +110,7 @@ func TestGetUserProfile_NotFound(t *testing.T) {
 }
 
 func TestListUsers(t *testing.T) {
-	repo := NewMockUserRepository()
+	repo := applicationtest.NewMockUserRepository()
 	service := NewUserService(repo, nil, nil, nil)
 
 	ctx := context.Background()
@@ -122,7 +123,7 @@ func TestListUsers(t *testing.T) {
 		name, _ := user.NewUserName("User " + string(rune('0'+i)))
 		role, _ := user.NewRole(roleStr)
 		u, _ := user.NewUser(googleID, email, name, role)
-		repo.users[u.ID().String()] = u
+		repo.Users[u.ID().String()] = u
 	}
 
 	// List all users
@@ -148,7 +149,7 @@ func TestListUsers(t *testing.T) {
 }
 
 func TestAssignRole(t *testing.T) {
-	repo := NewMockUserRepository()
+	repo := applicationtest.NewMockUserRepository()
 	service := NewUserService(repo, nil, nil, nil)
 
 	ctx := context.Background()
@@ -159,7 +160,7 @@ func TestAssignRole(t *testing.T) {
 	adminName, _ := user.NewUserName("Admin")
 	adminRole, _ := user.NewRole(user.RoleAdmin)
 	admin, _ := user.NewUser(adminGoogleID, adminEmail, adminName, adminRole)
-	repo.users[admin.ID().String()] = admin
+	repo.Users[admin.ID().String()] = admin
 
 	// Create target user
 	targetGoogleID, _ := user.NewGoogleID("target123")
@@ -167,7 +168,7 @@ func TestAssignRole(t *testing.T) {
 	targetName, _ := user.NewUserName("Target")
 	targetRole, _ := user.NewRole(user.RoleViewer)
 	target, _ := user.NewUser(targetGoogleID, targetEmail, targetName, targetRole)
-	repo.users[target.ID().String()] = target
+	repo.Users[target.ID().String()] = target
 
 	// Assign deployer role
 	newRole, _ := user.NewRole(user.RoleDeployer)
@@ -184,7 +185,7 @@ func TestAssignRole(t *testing.T) {
 }
 
 func TestAssignRole_Unauthorized(t *testing.T) {
-	repo := NewMockUserRepository()
+	repo := applicationtest.NewMockUserRepository()
 	service := NewUserService(repo, nil, nil, nil)
 
 	ctx := context.Background()
@@ -195,7 +196,7 @@ func TestAssignRole_Unauthorized(t *testing.T) {
 	name, _ := user.NewUserName("Viewer")
 	role, _ := user.NewRole(user.RoleViewer)
 	viewer, _ := user.NewUser(googleID, email, name, role)
-	repo.users[viewer.ID().String()] = viewer
+	repo.Users[viewer.ID().String()] = viewer
 
 	// Create target user
 	targetGoogleID, _ := user.NewGoogleID("target123")
@@ -203,7 +204,7 @@ func TestAssignRole_Unauthorized(t *testing.T) {
 	targetName, _ := user.NewUserName("Target")
 	targetRole, _ := user.NewRole(user.RoleViewer)
 	target, _ := user.NewUser(targetGoogleID, targetEmail, targetName, targetRole)
-	repo.users[target.ID().String()] = target
+	repo.Users[target.ID().String()] = target
 
 	// Try to assign role (should fail)
 	newRole, _ := user.NewRole(user.RoleAdmin)

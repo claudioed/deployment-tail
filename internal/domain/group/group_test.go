@@ -2,6 +2,7 @@ package group
 
 import (
 	"testing"
+	"time"
 
 	"github.com/claudioed/deployment-tail/internal/domain/schedule"
 )
@@ -10,8 +11,9 @@ func TestNewGroup(t *testing.T) {
 	name, _ := NewGroupName("Project Alpha")
 	desc, _ := NewDescription("All schedules for Project Alpha")
 	owner, _ := schedule.NewOwner("john.doe")
+	visibility := VisibilityPrivate
 
-	group, err := NewGroup(name, desc, owner)
+	group, err := NewGroup(name, desc, visibility, owner)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -31,6 +33,10 @@ func TestNewGroup(t *testing.T) {
 
 	if !group.Owner().Equals(owner) {
 		t.Errorf("expected owner %v, got %v", owner, group.Owner())
+	}
+
+	if group.Visibility() != visibility {
+		t.Errorf("expected visibility %v, got %v", visibility, group.Visibility())
 	}
 
 	// Verify ID is set
@@ -53,7 +59,7 @@ func TestGroup_Rename(t *testing.T) {
 	desc, _ := NewDescription("All schedules for Project Alpha")
 	owner, _ := schedule.NewOwner("john.doe")
 
-	group, _ := NewGroup(name, desc, owner)
+	group, _ := NewGroup(name, desc, VisibilityPrivate, owner)
 	originalUpdatedAt := group.UpdatedAt()
 
 	// Rename the group
@@ -84,7 +90,7 @@ func TestGroup_UpdateDescription(t *testing.T) {
 	desc, _ := NewDescription("All schedules for Project Alpha")
 	owner, _ := schedule.NewOwner("john.doe")
 
-	group, _ := NewGroup(name, desc, owner)
+	group, _ := NewGroup(name, desc, VisibilityPrivate, owner)
 	originalUpdatedAt := group.UpdatedAt()
 
 	// Update description
@@ -119,15 +125,17 @@ func TestGroup_Reconstitute(t *testing.T) {
 	name, _ := NewGroupName("Project Alpha")
 	desc, _ := NewDescription("All schedules for Project Alpha")
 	owner, _ := schedule.NewOwner("john.doe")
+	visibility := VisibilityPublic
 
 	// Create a new group first to get timestamps
-	original, _ := NewGroup(name, desc, owner)
+	original, _ := NewGroup(name, desc, VisibilityPrivate, owner)
 
 	// Reconstitute from storage
 	reconstituted := Reconstitute(
 		id,
 		name,
 		desc,
+		visibility,
 		owner,
 		original.CreatedAt(),
 		original.UpdatedAt(),
@@ -145,6 +153,10 @@ func TestGroup_Reconstitute(t *testing.T) {
 		t.Errorf("expected owner %v, got %v", owner, reconstituted.Owner())
 	}
 
+	if reconstituted.Visibility() != visibility {
+		t.Errorf("expected visibility %v, got %v", visibility, reconstituted.Visibility())
+	}
+
 	if reconstituted.CreatedAt() != original.CreatedAt() {
 		t.Error("createdAt should match")
 	}
@@ -159,7 +171,7 @@ func TestGroup_EmptyDescription(t *testing.T) {
 	emptyDesc, _ := NewDescription("")
 	owner, _ := schedule.NewOwner("john.doe")
 
-	group, err := NewGroup(name, emptyDesc, owner)
+	group, err := NewGroup(name, emptyDesc, VisibilityPrivate, owner)
 
 	if err != nil {
 		t.Fatalf("expected no error with empty description, got %v", err)
@@ -167,5 +179,46 @@ func TestGroup_EmptyDescription(t *testing.T) {
 
 	if !group.Description().IsEmpty() {
 		t.Error("expected description to be empty")
+	}
+}
+
+func TestGroup_SetVisibility(t *testing.T) {
+	name, _ := NewGroupName("Project Alpha")
+	desc, _ := NewDescription("All schedules for Project Alpha")
+	owner, _ := schedule.NewOwner("john.doe")
+
+	group, _ := NewGroup(name, desc, VisibilityPrivate, owner)
+	originalUpdatedAt := group.UpdatedAt()
+
+	// Wait to ensure time.Now() returns a different timestamp
+	time.Sleep(1 * time.Millisecond)
+
+	// Change visibility to public
+	err := group.SetVisibility(VisibilityPublic)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if group.Visibility() != VisibilityPublic {
+		t.Errorf("expected visibility %v, got %v", VisibilityPublic, group.Visibility())
+	}
+
+	// Verify updatedAt changed
+	if !group.UpdatedAt().After(originalUpdatedAt) {
+		t.Error("expected updatedAt to be updated after visibility change")
+	}
+
+	// Name, description, and owner should remain unchanged
+	if !group.Name().Equals(name) {
+		t.Error("name should not change during visibility update")
+	}
+
+	if group.Description().String() != desc.String() {
+		t.Error("description should not change during visibility update")
+	}
+
+	if !group.Owner().Equals(owner) {
+		t.Error("owner should not change during visibility update")
 	}
 }

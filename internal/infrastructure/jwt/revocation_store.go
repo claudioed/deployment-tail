@@ -181,12 +181,14 @@ func (s *RevocationStore) cleanup(ctx context.Context) {
 		return true
 	})
 
-	// Clean up database
-	query := "DELETE FROM revoked_tokens WHERE expires_at < ?"
-	_, err := s.db.ExecContext(ctx, query, now)
-	if err != nil {
-		// Log error but continue (in production, use proper logger)
-		fmt.Printf("Warning: failed to cleanup expired tokens: %v\n", err)
+	// Clean up database (if available)
+	if s.db != nil {
+		query := "DELETE FROM revoked_tokens WHERE expires_at < ?"
+		_, err := s.db.ExecContext(ctx, query, now)
+		if err != nil {
+			// Log error but continue (in production, use proper logger)
+			fmt.Printf("Warning: failed to cleanup expired tokens: %v\n", err)
+		}
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/claudioed/deployment-tail/api"
 	"github.com/claudioed/deployment-tail/internal/adapters/input/http/middleware"
 	"github.com/claudioed/deployment-tail/internal/application"
+	"github.com/claudioed/deployment-tail/internal/application/applicationtest"
 	"github.com/claudioed/deployment-tail/internal/application/ports/input"
 	"github.com/claudioed/deployment-tail/internal/domain/group"
 	"github.com/claudioed/deployment-tail/internal/domain/schedule"
@@ -23,10 +24,10 @@ import (
 
 // Test helpers
 
-func setupTestServices(t *testing.T) (input.ScheduleService, input.GroupService, input.UserService, *application.MockUserRepository) {
-	scheduleRepo := application.NewMockRepository()
-	groupRepo := application.NewMockGroupRepository()
-	userRepo := application.NewMockUserRepository()
+func setupTestServices(t *testing.T) (input.ScheduleService, input.GroupService, input.UserService, *applicationtest.MockUserRepository) {
+	scheduleRepo := applicationtest.NewMockRepository()
+	groupRepo := applicationtest.NewMockGroupRepository()
+	userRepo := applicationtest.NewMockUserRepository()
 
 	scheduleService := application.NewScheduleService(scheduleRepo, userRepo)
 	groupService := application.NewGroupService(groupRepo, scheduleRepo)
@@ -35,7 +36,7 @@ func setupTestServices(t *testing.T) (input.ScheduleService, input.GroupService,
 	return scheduleService, groupService, userService, userRepo
 }
 
-func createTestDeployer(t *testing.T, userRepo *application.MockUserRepository) *user.User {
+func createTestDeployer(t *testing.T, userRepo *applicationtest.MockUserRepository) *user.User {
 	t.Helper()
 	googleID, _ := user.NewGoogleID("deployer123")
 	email, _ := user.NewEmail("deployer@example.com")
@@ -46,13 +47,13 @@ func createTestDeployer(t *testing.T, userRepo *application.MockUserRepository) 
 	return u
 }
 
-func createTestSchedule(t *testing.T, scheduleService input.ScheduleService, userRepo *application.MockUserRepository) *schedule.Schedule {
+func createTestSchedule(t *testing.T, scheduleService input.ScheduleService, userRepo *applicationtest.MockUserRepository) *schedule.Schedule {
 	t.Helper()
 	return createTestScheduleWithUser(t, scheduleService, userRepo).schedule
 }
 
 // createTestScheduleWithUser creates a test schedule and returns both schedule and user
-func createTestScheduleWithUser(t *testing.T, scheduleService input.ScheduleService, userRepo *application.MockUserRepository) struct {
+func createTestScheduleWithUser(t *testing.T, scheduleService input.ScheduleService, userRepo *applicationtest.MockUserRepository) struct {
 	schedule *schedule.Schedule
 	user     *user.User
 } {

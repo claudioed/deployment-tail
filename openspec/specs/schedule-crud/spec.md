@@ -270,6 +270,62 @@ The system SHALL include owners and environments as arrays when returning schedu
 - **WHEN** system returns list of schedules
 - **THEN** each schedule includes its owners array and environments array
 
+### Requirement: Group assignment in schedule creation form
+
+The system SHALL provide group multi-select in the standard schedule creation form.
+
+#### Scenario: Create schedule with groups
+- **WHEN** user fills schedule creation form and selects groups
+- **THEN** system creates schedule and assigns to selected groups
+
+#### Scenario: Group selector shows favorites first
+- **WHEN** user opens schedule creation form
+- **THEN** system displays groups ordered with favorites first, then alphabetically
+
+#### Scenario: Groups remain optional
+- **WHEN** user creates schedule without selecting groups
+- **THEN** system creates schedule successfully without group assignments
+
+#### Scenario: Multi-select groups
+- **WHEN** user selects multiple groups in creation form
+- **THEN** system allows selection and displays selected group names
+
+### Requirement: Remove Quick Create integration
+
+The system SHALL remove Quick Create modal and related UI elements.
+
+#### Scenario: No Q keyboard shortcut
+- **WHEN** user presses 'Q' key anywhere in UI
+- **THEN** system types 'Q' normally (no modal trigger)
+
+#### Scenario: No Quick Create button
+- **WHEN** user views schedule list
+- **THEN** system shows only standard "Create Schedule" button
+
+#### Scenario: Standard form only
+- **WHEN** user clicks "Create Schedule"
+- **THEN** system opens full schedule creation form (not modal)
+
+### Requirement: Remove Templates functionality
+
+The system SHALL remove template save/load capabilities.
+
+#### Scenario: No template save option
+- **WHEN** user fills schedule creation form
+- **THEN** system shows no "Save as Template" option
+
+#### Scenario: No template load option
+- **WHEN** user opens schedule creation form
+- **THEN** system shows no "Load Template" option
+
+#### Scenario: No template management UI
+- **WHEN** user navigates application
+- **THEN** system shows no Templates menu or management interface
+
+#### Scenario: Template API endpoints removed
+- **WHEN** client calls /templates endpoints
+- **THEN** system returns 404 Not Found
+
 ## Notes
 
 - **Authentication & Authorization:**
@@ -294,6 +350,13 @@ The system SHALL include owners and environments as arrays when returning schedu
   - Responses always include owners and environments sorted alphabetically
   - Groups array still included in responses (from previous spec changes)
   - Update operation replaces entire owners/environments arrays (no partial update semantics)
+
+- **Quick Create and Templates Removal:**
+  - Group assignment moved from Quick Create modal to standard creation form
+  - All Quick Create code (modal, keyboard shortcuts, CLI command) removed
+  - All Templates code (domain, API, UI, database) removed
+  - Templates table dropped - no data migration
+  - Breaking change: Users must adapt to standard form workflow
 
 ## Affected Components
 
@@ -334,10 +397,28 @@ The system SHALL include owners and environments as arrays when returning schedu
   - Add security requirements to all schedule endpoints
   - Add User schema for creator/modifier information
 
+- **Removed Components (Quick Create and Templates)**:
+  - Web UI: Quick Create modal, keyboard event handlers, template components
+  - CLI: `schedule quick` command, template commands
+  - Backend: Template domain entities, repository, service, API handlers
+  - Database: `schedule_templates` table
+
+- **Modified Components (Quick Create and Templates)**:
+  - Web UI: Schedule creation form (add group selector)
+  - Documentation: Remove Quick Create and Template references
+
 ## Rollback Plan
 
+### Multi-Owner/Environment Rollback
 1. Run down migration to restore single `owner` and `environment` columns in `schedules` table
 2. Revert API schema to single-value owner and environment
 3. Revert domain layer to single Owner and Environment value objects
 4. Drop `schedule_owners` and `schedule_environments` junction tables
 5. First owner and first environment from arrays preserved during rollback
+
+### Quick Create/Templates Rollback
+1. Revert code changes via git
+2. Database migration will recreate `schedule_templates` table (empty)
+3. Quick Create modal and Templates UI restored
+4. CLI `schedule quick` command restored
+5. No data loss on rollback (templates already dropped)

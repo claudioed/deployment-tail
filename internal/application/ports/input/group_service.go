@@ -10,6 +10,7 @@ import (
 type CreateGroupCommand struct {
 	Name        string
 	Description string
+	Visibility  string
 	Owner       string
 }
 
@@ -18,6 +19,7 @@ type UpdateGroupCommand struct {
 	ID          string
 	Name        string
 	Description string
+	Visibility  string
 }
 
 // DeleteGroupCommand represents the command to delete a group
@@ -40,9 +42,9 @@ type UnassignScheduleCommand struct {
 
 // BulkAssignCommand represents the command to bulk assign schedules to a group
 type BulkAssignCommand struct {
-	GroupID      string
-	ScheduleIDs  []string
-	AssignedBy   string
+	GroupID     string
+	ScheduleIDs []string
+	AssignedBy  string
 }
 
 // BulkUnassignCommand represents the command to bulk unassign schedules from a group

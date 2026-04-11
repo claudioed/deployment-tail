@@ -7,32 +7,66 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Skip to main content link: visible only on keyboard focus -->
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
     <div class="container">
-        <header>
-            <h1>Deployment Schedule Manager</h1>
-            <p class="subtitle">Manage and track deployment schedules</p>
+        <header role="banner" class="app-header">
+            <button id="hamburger-menu" class="hamburger-menu" aria-label="Toggle sidebar">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+            </button>
+            <div class="app-header__title">
+                <h1>Deployment Schedule Manager</h1>
+                <p class="subtitle">Manage and track deployment schedules</p>
+            </div>
+            <div id="user-chip-container" class="user-chip-container" aria-live="polite"></div>
         </header>
 
-        <main id="app">
-            <!-- Schedule List View -->
-            <div id="list-view" class="view">
-                <div class="toolbar">
-                    <button id="btn-quick-create" class="btn btn-primary btn-quick">⚡ Quick Create (Q)</button>
-                    <button id="btn-create" class="btn btn-secondary">Full Form</button>
-                    <button id="btn-create-group" class="btn btn-primary">Create Group</button>
-                    <button id="btn-manage-groups" class="btn btn-secondary">Manage Groups</button>
-                    <button id="btn-manage-templates" class="btn btn-secondary">📋 Templates</button>
-                    <button id="btn-refresh" class="btn btn-secondary">Refresh</button>
+        <main id="app" class="app-layout">
+            <!-- Left Sidebar -->
+            <aside id="groups-sidebar" class="sidebar" role="navigation" aria-label="Groups">
+                <div class="sidebar-header">
+                    <h2>Groups</h2>
+                    <button id="btn-create-group-sidebar" class="btn btn-primary btn-sm">+ New Group</button>
                 </div>
 
-                <!-- Tab Navigation -->
-                <nav class="tab-nav" id="tab-nav">
-                    <ul class="tab-nav__tabs" id="tab-list" role="tablist">
-                        <!-- Tabs will be dynamically generated here -->
-                    </ul>
-                </nav>
+                <nav class="sidebar-nav">
+                    <!-- All Schedules pseudo-group -->
+                    <button class="sidebar-item sidebar-item--all" data-group-id="all">
+                        <span class="sidebar-item__name">All Schedules</span>
+                        <span class="sidebar-item__count">0</span>
+                    </button>
 
-                <div class="filters">
+                    <!-- Ungrouped pseudo-group -->
+                    <button class="sidebar-item sidebar-item--ungrouped" data-group-id="ungrouped">
+                        <span class="sidebar-item__name">Ungrouped</span>
+                        <span class="sidebar-item__count">0</span>
+                    </button>
+
+                    <div class="sidebar-divider"></div>
+
+                    <!-- Groups will be dynamically rendered here -->
+                    <div id="sidebar-groups-list"></div>
+                </nav>
+            </aside>
+
+            <!-- Backdrop for mobile -->
+            <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+            <!-- Main Content -->
+            <div id="main-content" class="main-content" tabindex="-1">
+                <!-- Schedule List View -->
+                <div id="list-view" class="view">
+                    <div class="toolbar">
+                        <button id="btn-create" class="btn btn-primary">Create Schedule</button>
+                        <button id="btn-refresh" class="btn btn-secondary">Refresh</button>
+                    </div>
+
+                    <div class="filters">
                     <input type="text" id="filter-owner" placeholder="Filter by owner">
                     <select id="filter-status">
                         <option value="">All Status</option>
@@ -48,7 +82,12 @@
                     </select>
                 </div>
 
-                <div class="schedule-table-wrapper">
+                <!-- Date-grouped schedules container -->
+                <div id="date-grouped-schedules" class="date-grouped-schedules">
+                    <!-- Date sections will be dynamically rendered here -->
+                </div>
+
+                <div class="schedule-table-wrapper" style="display: none;">
                     <table class="schedule-table">
                         <thead>
                             <tr>
@@ -65,9 +104,9 @@
                         </tbody>
                     </table>
                 </div>
-            </div>
+                </div>
 
-            <!-- Create/Edit Form View -->
+                <!-- Create/Edit Form View -->
             <div id="form-view" class="view hidden">
                 <h2 id="form-title">Create Schedule</h2>
                 <form id="schedule-form">
@@ -104,6 +143,18 @@
                         <label for="rollback-plan">Rollback Plan</label>
                         <textarea id="rollback-plan" rows="5" placeholder="Describe the rollback procedure..."></textarea>
                     </div>
+                    <div class="form-group">
+                        <label>Groups (optional)</label>
+                        <div id="form-groups-loading" class="groups-loading hidden">
+                            <span class="spinner"></span> Loading groups...
+                        </div>
+                        <div id="form-groups-empty" class="groups-empty hidden">
+                            No groups available. Create groups first.
+                        </div>
+                        <div id="form-groups-list" class="checkbox-list">
+                            <!-- Group checkboxes will be dynamically generated here -->
+                        </div>
+                    </div>
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">Save</button>
                         <button type="button" id="btn-cancel" class="btn btn-secondary">Cancel</button>
@@ -129,6 +180,7 @@
                     <div class="group-badges" id="schedule-groups"></div>
                 </div>
             </div>
+            </div>
         </main>
 
         <!-- Group Management Modal -->
@@ -147,6 +199,27 @@
                         <label for="group-description">Description</label>
                         <textarea id="group-description" rows="3" maxlength="500"></textarea>
                     </div>
+                    <div class="form-group">
+                        <label>Visibility</label>
+                        <div class="visibility-toggle">
+                            <label class="visibility-option">
+                                <input type="radio" name="group-visibility" value="public" id="group-visibility-public">
+                                <span class="visibility-icon">🌐</span>
+                                <span class="visibility-label">
+                                    <strong>Public</strong>
+                                    <small>Visible to all users</small>
+                                </span>
+                            </label>
+                            <label class="visibility-option">
+                                <input type="radio" name="group-visibility" value="private" id="group-visibility-private" checked>
+                                <span class="visibility-icon">🔒</span>
+                                <span class="visibility-label">
+                                    <strong>Private</strong>
+                                    <small>Only visible to you</small>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
                     <input type="hidden" id="group-id">
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">Save</button>
@@ -156,31 +229,6 @@
             </div>
         </div>
 
-        <!-- Groups List Modal -->
-        <div id="groups-list-modal" class="modal hidden">
-            <div class="modal-content modal-content--large">
-                <div class="modal-header">
-                    <h2>Manage Groups</h2>
-                    <button class="modal-close" id="groups-list-close">&times;</button>
-                </div>
-                <div class="group-list">
-                    <table class="group-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 40px; text-align: center;">★</th>
-                                <th>Name</th>
-                                <th>Description</th>
-                                <th>Schedules</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="groups-list">
-                            <!-- Groups will be dynamically populated here -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
 
         <!-- Assign to Group Modal -->
         <div id="assign-group-modal" class="modal hidden">
@@ -204,188 +252,17 @@
             </div>
         </div>
 
-        <!-- Template Management Modal -->
-        <div id="templates-modal" class="modal hidden">
-            <div class="modal-content modal-content--large">
-                <div class="modal-header">
-                    <h2>📋 Schedule Templates</h2>
-                    <button class="modal-close" id="templates-close">&times;</button>
-                </div>
-                <div class="templates-container">
-                    <div class="templates-toolbar">
-                        <button id="btn-create-template" class="btn btn-primary">+ Create Template</button>
-                        <p class="templates-subtitle">Save common scheduling patterns for quick reuse</p>
-                    </div>
-                    <div id="templates-list" class="templates-list">
-                        <!-- Templates will be dynamically loaded here -->
-                    </div>
-                    <div id="templates-empty" class="templates-empty hidden">
-                        <p>No templates yet. Create your first template to save common scheduling patterns!</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Template Form Modal -->
-        <div id="template-form-modal" class="modal hidden">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="template-form-title">Create Template</h2>
-                    <button class="modal-close" id="template-form-close">&times;</button>
-                </div>
-                <form id="template-form" class="template-form">
-                    <input type="hidden" id="template-id">
-
-                    <div class="form-group">
-                        <label for="template-name">Template Name*</label>
-                        <input type="text" id="template-name" required maxlength="100" placeholder="e.g., Production Deploy">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="template-description">Description</label>
-                        <textarea id="template-description" rows="2" placeholder="Optional description"></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="template-service">Service Name</label>
-                        <input type="text" id="template-service" placeholder="e.g., api-service">
-                    </div>
-
-                    <div class="form-group">
-                        <label>Default Environments</label>
-                        <div class="env-checkboxes">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="template-env" value="staging">
-                                <span class="checkbox-custom"></span>
-                                Staging
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="template-env" value="production">
-                                <span class="checkbox-custom"></span>
-                                Production
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="template-env" value="development">
-                                <span class="checkbox-custom"></span>
-                                Development
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="template-owners">Default Owners (separated by semicolon)</label>
-                        <input type="text" id="template-owners" placeholder="email1@example.com; email2@example.com">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="template-rollback">Default Rollback Plan</label>
-                        <textarea id="template-rollback" rows="3" placeholder="Rollback instructions..."></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="template-time-offset">Default Time Offset</label>
-                        <select id="template-time-offset">
-                            <option value="0">Now</option>
-                            <option value="15">+15 minutes</option>
-                            <option value="30" selected>+30 minutes</option>
-                            <option value="60">+1 hour</option>
-                            <option value="120">+2 hours</option>
-                            <option value="180">+3 hours</option>
-                            <option value="240">+4 hours</option>
-                        </select>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary">Save Template</button>
-                        <button type="button" class="btn btn-secondary" id="btn-template-cancel">Cancel</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Quick Create Modal -->
-        <div id="quick-create-modal" class="modal hidden">
-            <div class="modal-content modal-quick-create">
-                <div class="modal-header">
-                    <h2>⚡ Quick Create Schedule</h2>
-                    <button class="modal-close" id="quick-create-close">&times;</button>
-                </div>
-                <form id="quick-create-form" class="quick-create-form">
-                    <div class="form-group">
-                        <label for="quick-service">Service Name*</label>
-                        <input type="text" id="quick-service" list="recent-services" required placeholder="Type service name..." autocomplete="off">
-                        <datalist id="recent-services">
-                            <!-- Recent services will be populated here -->
-                        </datalist>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Environments*</label>
-                        <div class="env-checkboxes">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="quick-env" value="staging" checked>
-                                <span class="checkbox-custom"></span>
-                                Staging
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="quick-env" value="production">
-                                <span class="checkbox-custom"></span>
-                                Production
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="quick-env" value="development">
-                                <span class="checkbox-custom"></span>
-                                Development
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>When*</label>
-                        <div class="time-shortcuts">
-                            <button type="button" class="time-btn active" data-offset="0">Now</button>
-                            <button type="button" class="time-btn" data-offset="15">+15min</button>
-                            <button type="button" class="time-btn" data-offset="30">+30min</button>
-                            <button type="button" class="time-btn" data-offset="60">+1hour</button>
-                            <button type="button" class="time-btn" data-offset="120">+2hours</button>
-                            <button type="button" class="time-btn" data-offset="custom">Custom</button>
-                        </div>
-                        <input type="datetime-local" id="quick-time-custom" class="hidden">
-                    </div>
-
-                    <div class="form-group">
-                        <label>Groups (optional)</label>
-                        <div id="quick-groups-loading" class="groups-loading hidden">
-                            <span class="spinner"></span> Loading groups...
-                        </div>
-                        <div id="quick-groups-empty" class="groups-empty hidden">
-                            No groups available. Create groups first.
-                        </div>
-                        <div id="quick-groups-list" class="checkbox-list">
-                            <!-- Group checkboxes will be dynamically generated here -->
-                        </div>
-                    </div>
-
-                    <div class="quick-create-footer">
-                        <small class="text-muted">
-                            Owner: <span id="quick-current-user">Loading...</span> •
-                            Status: Created •
-                            <a href="#" id="link-full-form">Need more options?</a>
-                        </small>
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary" id="btn-quick-submit">
-                                <span class="btn-text">Create Schedule</span>
-                                <span class="btn-loading hidden">Creating...</span>
-                            </button>
-                            <button type="button" class="btn btn-secondary" id="btn-quick-cancel">Cancel</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <div id="notification" class="notification hidden"></div>
-        <div id="loading" class="loading hidden">Loading...</div>
+        <div id="notification"
+             class="notification hidden"
+             role="status"
+             aria-live="polite"
+             aria-atomic="true"></div>
+        <div id="notification-assertive"
+             class="visually-hidden"
+             role="alert"
+             aria-live="assertive"
+             aria-atomic="true"></div>
+        <div id="loading" class="loading hidden" aria-hidden="true">Loading...</div>
     </div>
 
     <script src="app.js"></script>

@@ -144,10 +144,10 @@ func TestRolePermissions(t *testing.T) {
 	admin, _ := NewRole(RoleAdmin)
 
 	tests := []struct {
-		role                string
-		canCreateSchedule   bool
+		role                 string
+		canCreateSchedule    bool
 		canModifyAnySchedule bool
-		canManageUsers      bool
+		canManageUsers       bool
 	}{
 		{RoleViewer, false, false, false},
 		{RoleDeployer, true, false, false},
@@ -292,12 +292,12 @@ func TestUserPermissions(t *testing.T) {
 	otherID := NewUserID()
 
 	tests := []struct {
-		name               string
-		userRole           string
-		canCreateSchedule  bool
-		canModifyOwn       bool
-		canModifyOther     bool
-		canManageUsers     bool
+		name              string
+		userRole          string
+		canCreateSchedule bool
+		canModifyOwn      bool
+		canModifyOther    bool
+		canManageUsers    bool
 	}{
 		{"viewer", RoleViewer, false, false, false, false},
 		{"deployer", RoleDeployer, true, true, false, false},
@@ -323,6 +323,122 @@ func TestUserPermissions(t *testing.T) {
 			}
 			if user.CanManageUsers() != tt.canManageUsers {
 				t.Errorf("CanManageUsers() = %v, want %v", user.CanManageUsers(), tt.canManageUsers)
+			}
+		})
+	}
+}
+
+func TestUserHasRole(t *testing.T) {
+	googleID, _ := NewGoogleID("108123456789012345678")
+	email, _ := NewEmail("user@example.com")
+	name, _ := NewUserName("John Doe")
+	role, _ := NewRole(RoleDeployer)
+
+	user, _ := NewUser(googleID, email, name, role)
+
+	if !user.HasRole(RoleDeployer) {
+		t.Error("HasRole(deployer) should be true")
+	}
+	if user.HasRole(RoleAdmin) {
+		t.Error("HasRole(admin) should be false")
+	}
+	if user.HasRole(RoleViewer) {
+		t.Error("HasRole(viewer) should be false")
+	}
+}
+
+func TestUserValidate(t *testing.T) {
+	googleID, _ := NewGoogleID("108123456789012345678")
+	email, _ := NewEmail("user@example.com")
+	name, _ := NewUserName("John Doe")
+	role, _ := NewRole(RoleDeployer)
+
+	// Valid user should pass validation
+	// This test covers all validation branches - if a mutation flips any
+	// condition (e.g., == to !=), the validation would incorrectly fail
+	user, _ := NewUser(googleID, email, name, role)
+	if err := user.Validate(); err != nil {
+		t.Errorf("Valid user should pass validation, got error: %v", err)
+	}
+}
+
+func TestRoleIsViewer(t *testing.T) {
+	viewer, _ := NewRole(RoleViewer)
+	deployer, _ := NewRole(RoleDeployer)
+	admin, _ := NewRole(RoleAdmin)
+
+	if !viewer.IsViewer() {
+		t.Error("viewer role should return true for IsViewer()")
+	}
+	if deployer.IsViewer() {
+		t.Error("deployer role should return false for IsViewer()")
+	}
+	if admin.IsViewer() {
+		t.Error("admin role should return false for IsViewer()")
+	}
+}
+
+func TestErrUserAlreadyExists(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      ErrUserAlreadyExists
+		expected string
+	}{
+		{
+			name:     "with GoogleID",
+			err:      ErrUserAlreadyExists{GoogleID: "12345"},
+			expected: "user already exists with Google ID: 12345",
+		},
+		{
+			name:     "with Email",
+			err:      ErrUserAlreadyExists{Email: "user@example.com"},
+			expected: "user already exists with email: user@example.com",
+		},
+		{
+			name:     "with neither",
+			err:      ErrUserAlreadyExists{},
+			expected: "user already exists",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.err.Error(); got != tt.expected {
+				t.Errorf("Error() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestErrUnauthorized(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      ErrUnauthorized
+		expected string
+	}{
+		{
+			name: "with reason",
+			err: ErrUnauthorized{
+				UserID:    "user-123",
+				Operation: "delete_schedule",
+				Reason:    "insufficient permissions",
+			},
+			expected: "user user-123 unauthorized for delete_schedule: insufficient permissions",
+		},
+		{
+			name: "without reason",
+			err: ErrUnauthorized{
+				UserID:    "user-456",
+				Operation: "manage_users",
+			},
+			expected: "user user-456 unauthorized for manage_users",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.err.Error(); got != tt.expected {
+				t.Errorf("Error() = %v, want %v", got, tt.expected)
 			}
 		})
 	}

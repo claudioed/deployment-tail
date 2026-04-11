@@ -10,31 +10,50 @@ A comprehensive tool for managing deployment schedules with group organization. 
 - **Token Revocation**: Logout functionality with server-side token blacklist
 - **Audit Trail**: Track who created and modified each schedule
 - **Schedule Management**: Create, read, update, and delete deployment schedules
-- **⚡ Quick Create**: Rapidly create schedules with minimal fields (service, environments, time) - ideal for high-velocity teams scheduling 10-20+ deployments per day
-- **📋 Schedule Templates**: Save frequently used schedule configurations as reusable templates with default values
-- **⌨️ Keyboard Shortcuts**: Press 'Q' anywhere to open Quick Create modal for fast scheduling
 - **Multi-Owner Support**: Schedules can have multiple owners for collaborative management
 - **Multi-Environment Deployments**: Schedule deployments across multiple environments simultaneously
 - **Group Organization**: Organize schedules into logical groups (projects, teams, releases)
+- **Group Visibility**: Public groups (visible to all users) or private groups (visible only to owner)
 - **Group Favorites**: Mark frequently used groups as favorites for quick access with star icons
-- **Tab Navigation**: Filter schedules by group with persistent tab state, favorites appear first
+- **Sidebar Navigation**: Persistent left sidebar with all accessible groups for easy navigation
+- **Date-Grouped Schedules**: Schedules organized by relative date (Today, Tomorrow, This Week, Later)
+- **URL-Based Group Selection**: Bookmarkable URLs for direct links to specific groups
 - **Ownership Tracking**: Every schedule and group has owners
 - **Approval Workflow**: Three-state workflow (created → approved/denied)
 - **Inline Status Editing**: Edit schedule status directly from the list view with keyboard support
 - **Tag-Based Input**: Semicolon-separated input for adding multiple owners quickly
 - **Rollback Plans**: Optional rollback plans for operational safety
-- **Web UI**: Modern, responsive web interface with mobile support and color-coded environment badges
+- **Web UI**: Modern, responsive web interface with sidebar navigation, date grouping, and mobile support (collapsible sidebar < 768px)
 - **REST API**: Full-featured API with OpenAPI 3.0 specification
 - **CLI Tool**: Command-line interface for all operations with multi-value flag support and quick commands
 - **Advanced Filtering**: Filter by date range, multiple environments, multiple owners, status, and groups
 - **Persistent Storage**: MySQL database with automatic migrations
 - **Many-to-Many Relationships**: Schedules can belong to multiple groups
 
-## ⚠️ Breaking Changes (v2.0)
+## ⚠️ Breaking Changes
+
+### v3.0 - Feature Removal (Current)
+
+**Quick Create and Templates features have been removed for codebase simplification.**
+
+**Removed:**
+- Quick Create modal and Q keyboard shortcut
+- Templates (save/load schedule configurations)
+- CLI `schedule quick` command
+- CLI `template` commands
+- `/api/v1/templates` API endpoints
+
+**Migration:**
+- Use standard schedule creation form (Web UI) or `schedule create` (CLI)
+- Group assignment moved to standard form
+- Templates data will be dropped - export any critical templates before upgrading
+- No functional loss - standard creation provides all capabilities
+
+### v2.0 - Multi-Owner and Multi-Environment
 
 **Version 2.0 introduces breaking API changes. If you're upgrading from v1.x, please read the migration guide below.**
 
-### API Changes
+**API Changes**
 
 **Owner and Environment fields are now arrays:**
 
@@ -251,95 +270,6 @@ deployment-tail group unfavorite <group-id>              # Remove from favorites
 deployment-tail auth login --manual
 ```
 
-### Quick Scheduling (CLI)
-
-For high-velocity teams, the `schedule quick` command provides a streamlined way to create schedules with minimal input:
-
-```bash
-# Quick schedule for right now
-deployment-tail schedule quick api-service --env staging --now
-
-# Schedule in 30 minutes
-deployment-tail schedule quick api-service --env staging --in 30
-
-# Schedule in 2 hours
-deployment-tail schedule quick api-service --env production --in-hours 2
-
-# Schedule at specific time today (24-hour format)
-deployment-tail schedule quick api-service --env production --at 14:30
-
-# Multiple environments
-deployment-tail schedule quick api-service \
-  --env staging --env production --in 30
-
-# With optional fields
-deployment-tail schedule quick api-service \
-  --env staging --in 30 \
-  --description "Hotfix deployment" \
-  --rollback "kubectl rollout undo"
-
-# With group assignment (by group IDs)
-deployment-tail schedule quick api-service \
-  --env staging --in 30 \
-  --groups "550e8400-e29b-41d4-a716-446655440000,660e8400-e29b-41d4-a716-446655440001"
-
-# With group assignment (by group names)
-deployment-tail schedule quick api-service \
-  --env staging --in 30 \
-  --groups "Project Alpha,Team Backend"
-```
-
-**Aliases:** `deployment-tail schedule q` (shorthand for `quick`)
-
-**Smart Defaults:**
-- Owner: Automatically set to authenticated user's email
-- Status: Always `created`
-- Time: Defaults to "now" if no time flag specified
-
-### Schedule Templates (CLI)
-
-Templates allow you to save frequently used schedule configurations for quick reuse:
-
-```bash
-# List your templates
-deployment-tail template list
-
-# Create a template
-deployment-tail template create \
-  --name "production-deploy" \
-  --service api-service \
-  --env staging --env production \
-  --time-offset 30 \
-  --description "Standard production deployment"
-
-# Use a template to create a schedule
-deployment-tail template use <template-id>
-
-# Override template values
-deployment-tail template use <template-id> \
-  --now \
-  --description "Emergency hotfix"
-
-# Update a template
-deployment-tail template update <template-id> \
-  --service new-service \
-  --time-offset 60
-
-# Delete a template
-deployment-tail template delete <template-id>
-```
-
-**Time Offsets:**
-- `--time-offset 0` = Schedule for "now"
-- `--time-offset 15` = Schedule 15 minutes from creation
-- `--time-offset 60` = Schedule 1 hour from creation
-
-**Template Features:**
-- User-scoped (each user has their own templates)
-- Unique names per user
-- Store service, environments, owners, rollback plan, and default time offset
-- Override any field when using the template
-
 ### API Authentication
 
 All API endpoints (except `/health` and auth endpoints) require authentication.
@@ -496,11 +426,8 @@ Open your browser and navigate to `http://localhost:8080/` and click "Login with
 The Web UI provides:
 - **Authentication**: Secure Google OAuth login with role-based access
 - **Dashboard**: View all schedules with tab-based filtering
-- **⚡ Quick Create**: Press 'Q' anywhere to open a streamlined schedule creation modal with minimal fields (service, environments, time, optional groups)
-- **📋 Templates**: Save and reuse frequently used schedule configurations with the Templates button
-- **Time Shortcuts**: Quickly schedule for Now, +15min, +30min, +1h, +2h, or pick a custom time
-- **Smart Defaults**: Owner automatically set to current user, status always "created"
-- **Recent Services**: Service name input shows recently used services for quick selection
+- **Group Assignment**: Assign schedules to groups during creation with multi-select
+- **Quick Group Assignment**: Add schedules to groups directly from the list view
 - **Group Management**: Create, edit, delete, and favorite groups with star icons
 - **Tab Navigation**: Switch between "All", "Ungrouped", and group-specific views (favorited groups appear first)
 - **Schedule Assignment**: Drag-and-drop or bulk assign schedules to groups
@@ -537,14 +464,6 @@ The Web UI provides:
 - `DELETE /api/v1/schedules/{id}` - Delete a schedule (deployer: own only, admin: any)
 - `POST /api/v1/schedules/{id}/approve` - Approve a schedule (admin only)
 - `POST /api/v1/schedules/{id}/deny` - Deny a schedule (admin only)
-
-### Templates
-
-- `POST /api/v1/templates` - Create a template (deployer, admin)
-- `GET /api/v1/templates` - List user's templates (any authenticated user)
-- `GET /api/v1/templates/{id}` - Get a template by ID (owner only)
-- `PUT /api/v1/templates/{id}` - Update a template (owner only)
-- `DELETE /api/v1/templates/{id}` - Delete a template (owner only)
 
 ### Services
 
@@ -1067,18 +986,32 @@ curl "http://localhost:8080/api/schedules?owner=ops-team" | \
 
 ## Web UI Features
 
-### Tab Navigation
-- **All Tab**: Shows all schedules
-- **Ungrouped Tab**: Shows schedules not assigned to any group
-- **Group Tabs**: One tab per group, shows only schedules in that group
-- **Persistent State**: Active tab is saved in localStorage per owner
+### Sidebar Navigation
+- **Persistent Left Sidebar**: Always visible group list (240px on desktop)
+- **All Schedules**: View all schedules across all groups
+- **Ungrouped**: View schedules not assigned to any group
+- **Group List**: All accessible groups (public + your private groups)
+- **Visual Indicators**: 🌐 for public groups, 🔒 for private groups, ★ for favorites
+- **Favorites First**: Starred groups appear at the top
+- **URL-Based**: Bookmarkable URLs (`#all`, `#ungrouped`, `#group/{id}`)
+- **Mobile Responsive**: Collapsible sidebar < 768px with hamburger menu
 
-### Group Management Modal
-- Create new groups
-- Edit existing groups
-- Delete groups (preserves schedules)
-- Name and description fields with validation
-- Character counters (100 chars for name, 500 for description)
+### Date-Grouped Schedules
+- **Today**: Schedules for the current day
+- **Tomorrow**: Schedules for the next day
+- **This Week**: Schedules 2-7 days away
+- **Later**: Schedules beyond this week
+- **Collapsible Sections**: Click to expand/collapse, state persists
+- **Time Display**: HH:MM format for each schedule
+- **OVERDUE Badge**: Red badge for past schedules
+
+### Group Management
+- **Visibility Control**: Create public (visible to all) or private (owner only) groups
+- **Inline Settings**: Gear icon on hover for group owners
+- **Create from Sidebar**: "+ New Group" button in sidebar
+- **Quick Favorites**: Click star icon to favorite/unfavorite
+- **Name and Description**: Validation with character limits
+- **Delete Protection**: Schedules preserved when groups are deleted
 
 ### Schedule Operations
 - Assign schedules to multiple groups simultaneously
@@ -1087,11 +1020,11 @@ curl "http://localhost:8080/api/schedules?owner=ops-team" | \
 - Visual group badges on each schedule card
 
 ### Responsive Design
-- Desktop: Full sidebar and content area
-- Tablet: Collapsible sidebar
-- Mobile: Bottom sheet navigation
-- Touch-friendly targets (minimum 48x48px)
-- Horizontal tab scrolling on small screens
+- **Desktop (≥ 768px)**: Fixed 240px sidebar + flexible content area
+- **Mobile (< 768px)**: Hidden sidebar with hamburger menu overlay
+- **Smooth Transitions**: Slide-in/out animations
+- **Touch-Friendly**: Tap backdrop or select group to close mobile sidebar
+- **Adaptive Layout**: CSS Grid for flexible layouts
 
 ## Troubleshooting
 
@@ -1156,6 +1089,12 @@ location.reload();
 - Rare case where schedule creation succeeded, group assignment failed, and deletion also failed
 - The error message includes the orphaned schedule ID
 - Manually delete the schedule via UI or: `deployment-tail schedule delete <id>`
+
+## Design & UX
+
+- **UX research report**: [`docs/ux-research.md`](docs/ux-research.md) — heuristic evaluation, personas, prioritized findings, design-token inventory, and the backlog of deferred UX work.
+- **Design tokens**: Defined in the `:root` block of `web/styles.css` (colors, typography, spacing, radius, shadow, z-index, motion). New web components should consume tokens; legacy components are being migrated incrementally.
+- **Accessibility baseline**: The web UI provides ARIA landmark roles, a skip-to-main-content link, a global `:focus-visible` ring, focus traps on all modals, and polite/assertive ARIA live regions for notifications. See `openspec/changes/ux-ui-research-logged-user/specs/ui-accessibility-baseline/spec.md` for requirements.
 
 ## Contributing
 

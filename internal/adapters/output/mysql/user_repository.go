@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/claudioed/deployment-tail/internal/domain/user"
+	"github.com/go-sql-driver/mysql"
 )
 
 // UserRepository implements the user.Repository interface for MySQL
@@ -368,11 +369,13 @@ func (r *UserRepository) mapToUser(
 	return user.Reconstitute(id, gid, e, n, roleObj, lastLogin, createdAt, updatedAt), nil
 }
 
-// isDuplicateKeyError checks if the error is a duplicate key error
+// isDuplicateKeyError checks if the error is a MySQL duplicate key error (1062).
+// It uses errors.As to safely unwrap driver errors rather than inspecting the
+// error message, which is brittle and can panic on short strings.
 func isDuplicateKeyError(err error) bool {
-	// MySQL error code 1062 is for duplicate entry
-	return err != nil && (
-		err.Error() == "Error 1062: Duplicate entry" ||
-		err.Error()[:4] == "1062" ||
-		err.Error()[:len("Error 1062")] == "Error 1062")
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysql.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
 }

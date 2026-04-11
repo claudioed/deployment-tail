@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -26,6 +26,7 @@ RUN apk --no-cache add ca-certificates
 COPY --from=builder /app/server .
 COPY --from=builder /app/deployment-tail .
 COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/web ./web
 
 # Expose API port
 EXPOSE 8080

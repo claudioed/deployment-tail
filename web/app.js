@@ -4,6 +4,14 @@ const API_BASE_URL = 'http://localhost:8080';
 // Application State
 let currentSchedule = null;
 let isEditMode = false;
+let allGroups = [];
+let selectedGroupId = 'all'; // 'all', 'ungrouped', or group UUID
+let dateSectionCollapseStates = {}; // Stores collapse state for date sections
+
+// Authenticated user profile, populated from GET /users/me on bootstrap.
+// This is the single source of truth for user identity; do not read identity
+// from the filter-owner input or from localStorage.
+let currentUser = null;
 
 // DOM Elements
 const listView = document.getElementById('list-view');
@@ -17,8 +25,28 @@ const notification = document.getElementById('notification');
 const loading = document.getElementById('loading');
 
 // Initialize application
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
+    initializeFormTagInputs();
+
+    // Initialize controllers (GroupController is defined later in the file,
+    // but classes/functions are hoisted and available by the time this fires).
+    groupController = new GroupController();
+    window.groupController = groupController;
+
+    loadDateSectionCollapseStates();
+    loadSelectedGroupFromURL();
+
+    // Resolve the authenticated user profile before loading any data that
+    // depends on identity (groups visible to user, schedules owned by user).
+    await fetchCurrentUser();
+
+    // Render the user chip (renderUserChip is defined later in the file).
+    if (typeof renderUserChip === 'function') {
+        renderUserChip(currentUser);
+    }
+
+    loadGroupsAndRenderSidebar();
     loadSchedules();
 });
 
@@ -29,6 +57,20 @@ function setupEventListeners() {
     document.getElementById('btn-refresh').addEventListener('click', () => loadSchedules());
     document.getElementById('btn-cancel').addEventListener('click', showListView);
     document.getElementById('btn-back').addEventListener('click', showListView);
+
+    // Sidebar controls
+    document.getElementById('btn-create-group-sidebar')?.addEventListener('click', () => {
+        if (groupController) {
+            groupController.showCreateGroupModal();
+        }
+    });
+
+    document.querySelector('.sidebar-item--all')?.addEventListener('click', () => selectGroup('all'));
+    document.querySelector('.sidebar-item--ungrouped')?.addEventListener('click', () => selectGroup('ungrouped'));
+
+    // Mobile sidebar controls
+    document.getElementById('hamburger-menu')?.addEventListener('click', openMobileSidebar);
+    document.getElementById('sidebar-backdrop')?.addEventListener('click', closeMobileSidebar);
 
     // Detail view buttons
     document.getElementById('btn-edit').addEventListener('click', showEditForm);
@@ -127,6 +169,70 @@ async function apiCall(endpoint, options = {}) {
         return await response.json();
     } finally {
         hideLoading();
+    }
+}
+
+// ===================================
+// AUTHENTICATED USER BOOTSTRAP
+// ===================================
+
+// Fetch the authenticated user profile from the backend and populate the
+// module-level `currentUser` state. Called once on app bootstrap before any
+// data loads. Returns the user object on success, or null if the profile
+// could not be resolved (in which case the chip renders a minimal variant).
+//
+// Error policy (per design.md Decision 2):
+//   401 -> token invalid; clear local state and redirect to sign-in.
+//   404 -> endpoint missing; warn and fall back to minimal profile.
+//   5xx or network error -> notify and fall back to minimal profile.
+async function fetchCurrentUser() {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+        window.location.href = '/auth/google/login';
+        return null;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/me`, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_email');
+            localStorage.removeItem('user_name');
+            localStorage.removeItem('user_role');
+            window.location.href = '/auth/google/login';
+            return null;
+        }
+
+        if (response.status === 404) {
+            console.warn('fetchCurrentUser: /users/me returned 404; falling back to minimal profile');
+            currentUser = { email: null, name: null, role: null, _minimal: true };
+            return currentUser;
+        }
+
+        if (!response.ok) {
+            console.error(`fetchCurrentUser: unexpected status ${response.status}`);
+            if (typeof showNotification === 'function') {
+                showNotification('Could not load your profile. Some features may be limited.', 'error');
+            }
+            currentUser = { email: null, name: null, role: null, _minimal: true };
+            return currentUser;
+        }
+
+        currentUser = await response.json();
+        return currentUser;
+    } catch (err) {
+        console.error('fetchCurrentUser failed:', err);
+        if (typeof showNotification === 'function') {
+            showNotification('Could not load your profile. Some features may be limited.', 'error');
+        }
+        currentUser = { email: null, name: null, role: null, _minimal: true };
+        return currentUser;
     }
 }
 
@@ -320,10 +426,14 @@ async function loadAndShowDetail(id) {
 async function quickAssignGroups(scheduleId) {
     try {
         // Fetch schedule and groups in parallel
-        const currentUser = getCurrentUser();
+        const ownerEmail = getCurrentUser();
+        if (!ownerEmail) {
+            showNotification('You must be signed in to assign groups', 'error');
+            return;
+        }
         const [schedule, groupsResponse] = await Promise.all([
             getSchedule(scheduleId),
-            fetch(`${API_BASE_URL}/groups?owner=${encodeURIComponent(currentUser)}`, {
+            fetch(`${API_BASE_URL}/groups?owner=${encodeURIComponent(ownerEmail)}`, {
                 headers: { 'Authorization': `Bearer ${getToken()}` }
             })
         ]);
@@ -386,13 +496,21 @@ async function quickAssignGroups(scheduleId) {
         // Add to DOM
         const overlay = document.createElement('div');
         overlay.innerHTML = modalHtml;
-        document.body.appendChild(overlay.firstElementChild);
+        const overlayEl = overlay.firstElementChild;
+        document.body.appendChild(overlayEl);
+
+        // Install focus trap on the quick-assign overlay (task 11.4).
+        _quickAssignRelease = trapFocus(overlayEl, () => closeQuickAssign());
 
     } catch (error) {
         console.error('Quick assign error:', error);
         showNotification('Failed to load groups: ' + error.message, 'error');
     }
 }
+
+// Holds the focus-trap release function for the dynamically-created
+// quick-assign overlay. Set when the overlay is shown, called when closed.
+let _quickAssignRelease = null;
 
 function closeQuickAssign(event) {
     if (event && event.target.id !== 'quick-assign-overlay' && !event.target.classList.contains('modal-close')) {
@@ -401,6 +519,10 @@ function closeQuickAssign(event) {
     const overlay = document.getElementById('quick-assign-overlay');
     if (overlay) {
         overlay.remove();
+    }
+    if (_quickAssignRelease) {
+        _quickAssignRelease();
+        _quickAssignRelease = null;
     }
 }
 
@@ -559,6 +681,10 @@ async function handleFormSubmit(e) {
     const owners = ownerTagInput.getTags();
     const environments = environmentTagInput.getEnvironments();
 
+    // Get selected group IDs
+    const selectedGroupIds = Array.from(document.querySelectorAll('input[name="form-group"]:checked'))
+        .map(cb => cb.value);
+
     // Validate at least one owner and environment
     if (owners.length === 0) {
         showNotification('At least one owner is required', 'error');
@@ -587,17 +713,82 @@ async function handleFormSubmit(e) {
         data.rollbackPlan = rollbackPlan;
     }
 
+    let createdScheduleId = null;
+
     try {
         let schedule;
         if (isEditMode) {
             schedule = await updateSchedule(currentSchedule.id, data);
+
+            // Update group assignments for edited schedule
+            if (selectedGroupIds.length > 0) {
+                try {
+                    const token = localStorage.getItem('auth_token');
+                    await fetch(`${API_BASE_URL}/schedules/${currentSchedule.id}/groups`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ groupIds: selectedGroupIds })
+                    });
+                } catch (groupError) {
+                    console.error('Failed to update group assignments:', groupError);
+                    showNotification('Schedule updated, but group assignment failed', 'error');
+                }
+            }
         } else {
+            // Create new schedule
             schedule = await createSchedule(data);
+            createdScheduleId = schedule.id;
+
+            // Step 2 - Assign to groups (if any selected)
+            if (selectedGroupIds.length > 0) {
+                try {
+                    const token = localStorage.getItem('auth_token');
+                    const assignmentResponse = await fetch(`${API_BASE_URL}/schedules/${createdScheduleId}/groups`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ groupIds: selectedGroupIds })
+                    });
+
+                    // Handle group assignment failure with rollback
+                    if (!assignmentResponse.ok) {
+                        const assignError = await assignmentResponse.json();
+
+                        // Attempt to delete the created schedule (rollback)
+                        try {
+                            await fetch(`${API_BASE_URL}/schedules/${createdScheduleId}`, {
+                                method: 'DELETE',
+                                headers: {
+                                    'Authorization': `Bearer ${token}`
+                                }
+                            });
+
+                            throw new Error(`Failed to assign groups: ${assignError.message || 'Unknown error'}. Schedule creation was rolled back.`);
+                        } catch (rollbackError) {
+                            // Rollback failed - orphaned schedule
+                            throw new Error(
+                                `Schedule created but group assignment failed. Schedule ID: ${createdScheduleId}. ` +
+                                `Please assign groups manually or delete the schedule. Error: ${assignError.message || 'Unknown error'}`
+                            );
+                        }
+                    }
+                } catch (groupError) {
+                    throw groupError;
+                }
+            }
         }
 
         showDetail(schedule);
     } catch (error) {
-        // Error already shown in API call
+        // Error already shown in API call or thrown above
+        if (error.message) {
+            showNotification(error.message, 'error');
+        }
     }
 }
 
@@ -622,13 +813,42 @@ function showListView() {
 }
 
 // UI Helpers
+// Keep track of the active notification timeout so repeated calls don't leave
+// stale text sitting in the live region.
+let _notificationTimeoutId = null;
+
 function showNotification(message, type = 'success') {
+    // Route errors to the assertive live region so screen readers announce them
+    // immediately. Route success/info/default to the polite region so they
+    // queue without interrupting the user's current activity.
+    const assertiveRegion = document.getElementById('notification-assertive');
+
+    if (type === 'error' && assertiveRegion) {
+        // Clear first so a repeat of the same message still triggers an announcement.
+        assertiveRegion.textContent = '';
+        // Let the DOM settle before writing the new message.
+        requestAnimationFrame(() => {
+            assertiveRegion.textContent = message;
+        });
+    }
+
+    // Visual notification (visible to sighted users) always uses the primary element.
     notification.textContent = message;
     notification.className = `notification ${type}`;
     notification.classList.remove('hidden');
 
-    setTimeout(() => {
+    if (_notificationTimeoutId) {
+        clearTimeout(_notificationTimeoutId);
+    }
+    _notificationTimeoutId = setTimeout(() => {
         notification.classList.add('hidden');
+        // Clear text content so assistive tech does not re-announce the
+        // stale message when the region becomes relevant again.
+        notification.textContent = '';
+        if (assertiveRegion) {
+            assertiveRegion.textContent = '';
+        }
+        _notificationTimeoutId = null;
     }, 5000);
 }
 
@@ -692,6 +912,368 @@ function debounce(func, wait) {
 }
 
 // ===================================
+// SIDEBAR NAVIGATION FUNCTIONALITY
+// ===================================
+
+// Load groups and render sidebar
+async function loadGroupsAndRenderSidebar() {
+    try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            allGroups = [];
+            renderSidebar();
+            return;
+        }
+
+        const owner = encodeURIComponent(getCurrentUser());
+        const response = await fetch(`${API_BASE_URL}/groups?owner=${owner}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            allGroups = await response.json();
+            // Sort: favorites first, then alphabetically
+            allGroups.sort((a, b) => {
+                if (a.isFavorite && !b.isFavorite) return -1;
+                if (!a.isFavorite && b.isFavorite) return 1;
+                return a.name.localeCompare(b.name);
+            });
+        } else {
+            allGroups = [];
+        }
+    } catch (error) {
+        console.error('Failed to load groups:', error);
+        allGroups = [];
+    } finally {
+        renderSidebar();
+    }
+}
+
+// Render sidebar with groups
+function renderSidebar() {
+    const sidebarList = document.getElementById('sidebar-groups-list');
+    if (!sidebarList) return;
+
+    sidebarList.innerHTML = '';
+
+    if (allGroups.length === 0) {
+        sidebarList.innerHTML = '<p style="padding: 16px; color: var(--color-text-secondary); font-size: 14px; text-align: center;">No groups yet.<br>Create your first group!</p>';
+        updateSidebarSelection();
+        return;
+    }
+
+    allGroups.forEach(group => {
+        const item = document.createElement('button');
+        item.className = 'sidebar-item';
+        item.dataset.groupId = group.id;
+
+        const visibilityIcon = group.visibility === 'public' ? '🌐' : '🔒';
+        const visibilityClass = group.visibility === 'public' ? 'sidebar-item__icon--public' : 'sidebar-item__icon--private';
+        const favoriteIcon = group.isFavorite ? '★' : '';
+
+        item.innerHTML = `
+            <span class="sidebar-item__name">
+                ${favoriteIcon ? `<span class="sidebar-item__favorite">${favoriteIcon}</span>` : ''}
+                <span class="sidebar-item__icon ${visibilityClass}">${visibilityIcon}</span>
+                ${escapeHtml(group.name)}
+            </span>
+            <span class="sidebar-item__count">0</span>
+            <button class="sidebar-item__settings" title="Settings" onclick="event.stopPropagation(); editGroupFromSidebar('${group.id}')">
+                ⚙️
+            </button>
+        `;
+
+        item.addEventListener('click', () => selectGroup(group.id));
+
+        sidebarList.appendChild(item);
+    });
+
+    updateSidebarSelection();
+}
+
+// Update sidebar selection highlighting
+function updateSidebarSelection() {
+    document.querySelectorAll('.sidebar-item').forEach(item => {
+        const groupId = item.dataset.groupId;
+        if (groupId === selectedGroupId) {
+            item.classList.add('sidebar-item--active');
+        } else {
+            item.classList.remove('sidebar-item--active');
+        }
+    });
+}
+
+// Select a group (or pseudo-group)
+function selectGroup(groupId) {
+    selectedGroupId = groupId;
+    updateURLForGroup(groupId);
+    updateSidebarSelection();
+    closeMobileSidebar();
+    loadSchedules();
+}
+
+// Load selected group from URL hash
+function loadSelectedGroupFromURL() {
+    const hash = window.location.hash;
+    if (hash.startsWith('#group/')) {
+        selectedGroupId = hash.substring(7); // Remove '#group/'
+    } else if (hash === '#all') {
+        selectedGroupId = 'all';
+    } else if (hash === '#ungrouped') {
+        selectedGroupId = 'ungrouped';
+    } else {
+        selectedGroupId = 'all';
+        window.location.hash = '#all';
+    }
+}
+
+// Update URL hash when group is selected
+function updateURLForGroup(groupId) {
+    if (groupId === 'all') {
+        window.location.hash = '#all';
+    } else if (groupId === 'ungrouped') {
+        window.location.hash = '#ungrouped';
+    } else {
+        window.location.hash = `#group/${groupId}`;
+    }
+}
+
+// Handle browser back/forward
+window.addEventListener('hashchange', () => {
+    loadSelectedGroupFromURL();
+    updateSidebarSelection();
+    loadSchedules();
+});
+
+// Mobile sidebar controls
+function openMobileSidebar() {
+    const sidebar = document.getElementById('groups-sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    sidebar.classList.add('sidebar--open');
+    backdrop.classList.add('sidebar-backdrop--visible');
+}
+
+function closeMobileSidebar() {
+    const sidebar = document.getElementById('groups-sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    sidebar.classList.remove('sidebar--open');
+    backdrop.classList.remove('sidebar-backdrop--visible');
+}
+
+// Edit group from sidebar
+function editGroupFromSidebar(groupId) {
+    const group = allGroups.find(g => g.id === groupId);
+    if (group && groupController) {
+        groupController.showEditGroupModal(group);
+    }
+}
+
+// Update sidebar counts based on schedules
+function updateSidebarCounts(schedules) {
+    // Count all schedules
+    const allCount = schedules.length;
+    document.querySelector('.sidebar-item--all .sidebar-item__count').textContent = allCount;
+
+    // Count ungrouped
+    const ungroupedCount = schedules.filter(s => !s.groups || s.groups.length === 0).length;
+    document.querySelector('.sidebar-item--ungrouped .sidebar-item__count').textContent = ungroupedCount;
+
+    // Count per group
+    allGroups.forEach(group => {
+        const count = schedules.filter(s =>
+            s.groups && s.groups.some(g => g.id === group.id)
+        ).length;
+        const item = document.querySelector(`.sidebar-item[data-group-id="${group.id}"]`);
+        if (item) {
+            item.querySelector('.sidebar-item__count').textContent = count;
+        }
+    });
+}
+
+// ===================================
+// DATE GROUPING FUNCTIONALITY
+// ===================================
+
+// Group schedules by relative date
+function groupSchedulesByDate(schedules) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+
+    const groups = {
+        today: [],
+        tomorrow: [],
+        thisWeek: [],
+        later: []
+    };
+
+    schedules.forEach(schedule => {
+        const scheduledDate = new Date(schedule.scheduledAt);
+        const scheduleDay = new Date(scheduledDate.getFullYear(), scheduledDate.getMonth(), scheduledDate.getDate());
+
+        if (scheduleDay.getTime() === today.getTime()) {
+            groups.today.push(schedule);
+        } else if (scheduleDay.getTime() === tomorrow.getTime()) {
+            groups.tomorrow.push(schedule);
+        } else if (scheduleDay < nextWeek) {
+            groups.thisWeek.push(schedule);
+        } else {
+            groups.later.push(schedule);
+        }
+    });
+
+    // Sort schedules within each group by time
+    Object.keys(groups).forEach(key => {
+        groups[key].sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+    });
+
+    return groups;
+}
+
+// Render date-grouped schedules
+function renderDateGroupedSchedules(schedules) {
+    const container = document.getElementById('date-grouped-schedules');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!schedules || schedules.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--color-text-secondary); padding: 40px;">No schedules found</p>';
+        return;
+    }
+
+    const dateGroups = groupSchedulesByDate(schedules);
+    const sections = [
+        { key: 'today', label: 'Today' },
+        { key: 'tomorrow', label: 'Tomorrow' },
+        { key: 'thisWeek', label: 'This Week' },
+        { key: 'later', label: 'Later' }
+    ];
+
+    sections.forEach(section => {
+        const schedules = dateGroups[section.key];
+        if (schedules.length > 0) {
+            const sectionEl = renderDateSection(section.key, section.label, schedules);
+            container.appendChild(sectionEl);
+        }
+    });
+}
+
+// Render a single date section
+function renderDateSection(sectionKey, sectionLabel, schedules) {
+    const isCollapsed = dateSectionCollapseStates[sectionKey] || false;
+
+    const section = document.createElement('div');
+    section.className = `date-section ${isCollapsed ? 'date-section--collapsed' : ''}`;
+    section.dataset.sectionKey = sectionKey;
+
+    const header = document.createElement('div');
+    header.className = 'date-section-header';
+    header.innerHTML = `
+        <div class="date-section-header__title">
+            <span>${sectionLabel}</span>
+            <span class="date-section-header__count">${schedules.length}</span>
+        </div>
+        <span class="date-section-header__chevron">▼</span>
+    `;
+    header.addEventListener('click', () => toggleDateSection(sectionKey));
+
+    const body = document.createElement('div');
+    body.className = 'date-section-body';
+
+    const schedulesList = document.createElement('div');
+    schedulesList.className = 'date-section-schedules';
+
+    schedules.forEach(schedule => {
+        const item = renderDateScheduleItem(schedule);
+        schedulesList.appendChild(item);
+    });
+
+    body.appendChild(schedulesList);
+    section.appendChild(header);
+    section.appendChild(body);
+
+    return section;
+}
+
+// Render a single schedule item in date section
+function renderDateScheduleItem(schedule) {
+    const item = document.createElement('div');
+    item.className = 'date-schedule-item';
+    item.onclick = () => loadAndShowDetail(schedule.id);
+
+    const scheduledTime = new Date(schedule.scheduledAt);
+    const now = new Date();
+    const isOverdue = scheduledTime < now && schedule.status === 'created';
+
+    const timeStr = formatTime(scheduledTime);
+    const timeClass = isOverdue ? 'date-schedule-item__time--overdue' : '';
+
+    item.innerHTML = `
+        <div class="date-schedule-item__time ${timeClass}">
+            ${timeStr}
+            ${isOverdue ? '<div class="overdue-badge">OVERDUE</div>' : ''}
+        </div>
+        <div class="date-schedule-item__info">
+            <div class="date-schedule-item__service">${escapeHtml(schedule.serviceName)}</div>
+            <div class="date-schedule-item__meta">
+                <div class="date-schedule-item__owners">${getOwnersDisplay(schedule.owners, 2)}</div>
+                ${getEnvironmentBadges(schedule.environments)}
+            </div>
+        </div>
+        <div class="date-schedule-item__status">
+            ${getStatusIcon(schedule.status)}${getStatusBadge(schedule.status)}
+        </div>
+    `;
+
+    return item;
+}
+
+// Toggle date section collapse
+function toggleDateSection(sectionKey) {
+    const section = document.querySelector(`.date-section[data-section-key="${sectionKey}"]`);
+    if (!section) return;
+
+    const isCollapsed = section.classList.toggle('date-section--collapsed');
+    dateSectionCollapseStates[sectionKey] = isCollapsed;
+    saveDateSectionCollapseStates();
+}
+
+// Save collapse states to localStorage
+function saveDateSectionCollapseStates() {
+    try {
+        localStorage.setItem('dateSectionCollapseStates', JSON.stringify(dateSectionCollapseStates));
+    } catch (e) {
+        console.error('Failed to save collapse states:', e);
+    }
+}
+
+// Load collapse states from localStorage
+function loadDateSectionCollapseStates() {
+    try {
+        const saved = localStorage.getItem('dateSectionCollapseStates');
+        if (saved) {
+            dateSectionCollapseStates = JSON.parse(saved);
+        }
+    } catch (e) {
+        console.error('Failed to load collapse states:', e);
+        dateSectionCollapseStates = {};
+    }
+}
+
+// Format time as HH:MM
+function formatTime(date) {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+}
+
+// ===================================
 // GROUP MANAGEMENT FUNCTIONALITY
 // ===================================
 
@@ -700,6 +1282,13 @@ async function createGroup(name, description, owner) {
     return await apiCall('/groups', {
         method: 'POST',
         body: JSON.stringify({ name, description, owner })
+    });
+}
+
+async function createGroupWithVisibility(name, description, owner, visibility) {
+    return await apiCall('/groups', {
+        method: 'POST',
+        body: JSON.stringify({ name, description, owner, visibility })
     });
 }
 
@@ -717,6 +1306,13 @@ async function updateGroup(id, name, description) {
     return await apiCall(`/groups/${id}`, {
         method: 'PUT',
         body: JSON.stringify({ name, description })
+    });
+}
+
+async function updateGroupWithVisibility(id, name, description, visibility) {
+    return await apiCall(`/groups/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, description, visibility })
     });
 }
 
@@ -774,6 +1370,10 @@ class GroupController {
     constructor() {
         this.groups = [];
         this.currentGroupId = null;
+        // Focus-trap release functions, set when a modal is shown and called
+        // when the modal is hidden (task 11.2, 11.3).
+        this._groupModalRelease = null;
+        this._assignGroupModalRelease = null;
         this.initializeElements();
         this.setupEventListeners();
     }
@@ -811,7 +1411,9 @@ class GroupController {
         document.getElementById('group-name').value = '';
         document.getElementById('group-description').value = '';
         document.getElementById('group-id').value = '';
+        document.getElementById('group-visibility-private').checked = true;
         this.groupModal.classList.remove('hidden');
+        this._groupModalRelease = trapFocus(this.groupModal, () => this.hideGroupModal());
     }
 
     async showEditGroupModal(group) {
@@ -820,17 +1422,32 @@ class GroupController {
         document.getElementById('group-name').value = group.name;
         document.getElementById('group-description').value = group.description || '';
         document.getElementById('group-id').value = group.id;
+
+        // Set visibility
+        if (group.visibility === 'public') {
+            document.getElementById('group-visibility-public').checked = true;
+        } else {
+            document.getElementById('group-visibility-private').checked = true;
+        }
+
         this.groupModal.classList.remove('hidden');
+        this._groupModalRelease = trapFocus(this.groupModal, () => this.hideGroupModal());
     }
 
     hideGroupModal() {
         this.groupModal.classList.add('hidden');
         this.groupForm.reset();
+        if (this._groupModalRelease) {
+            this._groupModalRelease();
+            this._groupModalRelease = null;
+        }
     }
 
     async showGroupsListModal() {
         try {
-            const owner = document.getElementById('filter-owner').value || getCurrentUser();
+            // Always source identity from getCurrentUser(); never from the
+            // filter-owner input (which is a search filter, not identity).
+            const owner = getCurrentUser();
             this.groups = await fetchGroups(owner);
             this.renderGroupsList();
             this.groupsListModal.classList.remove('hidden');
@@ -845,17 +1462,18 @@ class GroupController {
 
     async showAssignGroupModal() {
         if (!currentSchedule) return;
-        
+
         try {
             const owner = getCurrentUser();
             this.groups = await fetchGroups(owner);
-            
+
             // Get currently assigned groups
             const assignedGroups = currentSchedule.groups || [];
             const assignedIds = assignedGroups.map(g => g.id);
-            
+
             this.renderGroupCheckboxList(assignedIds);
             this.assignGroupModal.classList.remove('hidden');
+            this._assignGroupModalRelease = trapFocus(this.assignGroupModal, () => this.hideAssignGroupModal());
         } catch (error) {
             showNotification('Failed to load groups: ' + error.message, 'error');
         }
@@ -863,6 +1481,10 @@ class GroupController {
 
     hideAssignGroupModal() {
         this.assignGroupModal.classList.add('hidden');
+        if (this._assignGroupModalRelease) {
+            this._assignGroupModalRelease();
+            this._assignGroupModalRelease = null;
+        }
     }
 
     renderGroupsList() {
@@ -931,27 +1553,27 @@ class GroupController {
 
     async handleGroupFormSubmit(e) {
         e.preventDefault();
-        
+
         const name = document.getElementById('group-name').value.trim();
         const description = document.getElementById('group-description').value.trim();
+        const visibility = document.querySelector('input[name="group-visibility"]:checked').value;
         const owner = getCurrentUser();
-        
+
         try {
             if (this.currentGroupId) {
-                await updateGroup(this.currentGroupId, name, description);
+                await updateGroupWithVisibility(this.currentGroupId, name, description, visibility);
                 showNotification('Group updated successfully', 'success');
             } else {
-                await createGroup(name, description, owner);
+                await createGroupWithVisibility(name, description, owner, visibility);
                 showNotification('Group created successfully', 'success');
             }
-            
+
             this.hideGroupModal();
-            
-            // Refresh tabs and groups list if open
-            if (window.tabController) {
-                await window.tabController.loadTabs();
-            }
-            if (!this.groupsListModal.classList.contains('hidden')) {
+
+            // Refresh sidebar
+            await loadGroupsAndRenderSidebar();
+
+            if (this.groupsListModal && !this.groupsListModal.classList.contains('hidden')) {
                 await this.showGroupsListModal();
             }
         } catch (error) {
@@ -968,11 +1590,17 @@ class GroupController {
             await deleteGroup(id);
             showNotification('Group deleted successfully', 'success');
 
-            // Refresh tabs and groups list
-            if (window.tabController) {
-                await window.tabController.loadTabs();
+            // Refresh sidebar
+            await loadGroupsAndRenderSidebar();
+
+            // If we were viewing this group, switch to "All"
+            if (selectedGroupId === id) {
+                selectGroup('all');
             }
-            await this.showGroupsListModal();
+
+            if (this.groupsListModal && !this.groupsListModal.classList.contains('hidden')) {
+                await this.showGroupsListModal();
+            }
         } catch (error) {
             showNotification('Failed to delete group: ' + error.message, 'error');
         }
@@ -998,10 +1626,8 @@ class GroupController {
                 await unfavoriteGroup(groupId);
             }
 
-            // Refresh tabs to show updated star
-            if (window.tabController) {
-                await window.tabController.loadTabs();
-            }
+            // Refresh sidebar
+            await loadGroupsAndRenderSidebar();
 
         } catch (error) {
             console.error('Failed to toggle favorite:', error);
@@ -1074,200 +1700,16 @@ class GroupController {
 }
 
 // ===================================
-// TAB CONTROLLER
-// ===================================
-
-class TabController {
-    constructor() {
-        this.tabs = [];
-        this.activeTabId = this.loadActiveTab() || 'all';
-        this.groups = [];
-        this.initializeElements();
-    }
-
-    initializeElements() {
-        this.tabList = document.getElementById('tab-list');
-    }
-
-    async init() {
-        await this.loadTabs();
-    }
-
-    async loadTabs() {
-        try {
-            const owner = getCurrentUser();
-            this.groups = await fetchGroups(owner);
-            this.buildTabs();
-            this.renderTabs();
-        } catch (error) {
-            console.error('Failed to load tabs:', error);
-            this.tabs = [{ id: 'all', label: 'All Schedules', count: 0 }];
-            this.renderTabs();
-        }
-    }
-
-    buildTabs() {
-        this.tabs = [
-            { id: 'all', label: 'All Schedules', count: 0 },
-            { id: 'ungrouped', label: 'Ungrouped', count: 0 }
-        ];
-        
-        // Add group tabs
-        this.groups.forEach(group => {
-            this.tabs.push({
-                id: group.id,
-                label: group.name,
-                count: 0,
-                isGroup: true,
-                isFavorite: group.isFavorite || false
-            });
-        });
-    }
-
-    renderTabs() {
-        this.tabList.innerHTML = '';
-
-        this.tabs.forEach(tab => {
-            const li = document.createElement('li');
-            li.setAttribute('role', 'presentation');
-
-            const button = document.createElement('button');
-            button.className = 'tab-nav__tab';
-            button.setAttribute('role', 'tab');
-            button.setAttribute('aria-selected', tab.id === this.activeTabId ? 'true' : 'false');
-
-            if (tab.id === this.activeTabId) {
-                button.classList.add('tab-nav__tab--active');
-            }
-
-            // Build tab content with optional favorite star
-            let starHtml = '';
-            if (tab.isGroup) {
-                const starClass = tab.isFavorite ? 'favorite-star favorite-star--filled' : 'favorite-star';
-                const starIcon = tab.isFavorite ? '★' : '☆';
-                starHtml = `<span class="${starClass}" data-group-id="${tab.id}" title="${tab.isFavorite ? 'Remove from favorites' : 'Add to favorites'}">${starIcon}</span>`;
-            }
-
-            button.innerHTML = `
-                ${starHtml}
-                <span>${escapeHtml(tab.label)}</span>
-                <span class="tab-nav__tab__count">${tab.count}</span>
-            `;
-
-            button.addEventListener('click', () => this.switchTab(tab.id));
-
-            li.appendChild(button);
-            this.tabList.appendChild(li);
-        });
-
-        // Add click handlers for favorite stars
-        this.tabList.querySelectorAll('.favorite-star').forEach(star => {
-            star.addEventListener('click', (e) => {
-                e.stopPropagation(); // Prevent tab switch
-                const groupId = star.dataset.groupId;
-                this.toggleFavorite(groupId);
-            });
-        });
-    }
-
-    switchTab(tabId) {
-        this.activeTabId = tabId;
-        this.saveActiveTab(tabId);
-        this.renderTabs();
-        loadSchedules();
-    }
-
-    updateTabCounts(schedules) {
-        this.tabs.forEach(tab => {
-            if (tab.id === 'all') {
-                tab.count = schedules.length;
-            } else if (tab.id === 'ungrouped') {
-                tab.count = schedules.filter(s => !s.groups || s.groups.length === 0).length;
-            } else if (tab.isGroup) {
-                tab.count = schedules.filter(s => 
-                    s.groups && s.groups.some(g => g.id === tab.id)
-                ).length;
-            }
-        });
-        this.renderTabs();
-    }
-
-    filterSchedulesByActiveTab(schedules) {
-        if (this.activeTabId === 'all') {
-            return schedules;
-        } else if (this.activeTabId === 'ungrouped') {
-            return schedules.filter(s => !s.groups || s.groups.length === 0);
-        } else {
-            // Filter by group ID
-            return schedules.filter(s => 
-                s.groups && s.groups.some(g => g.id === this.activeTabId)
-            );
-        }
-    }
-
-    saveActiveTab(tabId) {
-        try {
-            localStorage.setItem('activeTab', tabId);
-        } catch (e) {
-            console.error('Failed to save active tab:', e);
-        }
-    }
-
-    loadActiveTab() {
-        try {
-            return localStorage.getItem('activeTab');
-        } catch (e) {
-            console.error('Failed to load active tab:', e);
-            return null;
-        }
-    }
-
-    async toggleFavorite(groupId) {
-        // Find the tab
-        const tab = this.tabs.find(t => t.id === groupId);
-        if (!tab) return;
-
-        // Store original state for rollback on error
-        const originalState = tab.isFavorite;
-
-        try {
-            // Optimistic UI update
-            tab.isFavorite = !tab.isFavorite;
-            this.renderTabs();
-
-            // Call API
-            if (tab.isFavorite) {
-                await favoriteGroup(groupId);
-            } else {
-                await unfavoriteGroup(groupId);
-            }
-
-            // Also update in groups array
-            const group = this.groups.find(g => g.id === groupId);
-            if (group) {
-                group.isFavorite = tab.isFavorite;
-            }
-
-            // Re-sort groups (favorites first) and rebuild tabs
-            await this.loadTabs();
-
-        } catch (error) {
-            console.error('Failed to toggle favorite:', error);
-            // Revert optimistic update
-            tab.isFavorite = originalState;
-            this.renderTabs();
-            showNotification('Failed to update favorite: ' + error.message, 'error');
-        }
-    }
-}
-
-// ===================================
 // UTILITY FUNCTIONS
 // ===================================
 
+// Returns the authenticated user's identifier (email) for use in API calls
+// that need ownership attribution. Sources identity from the module-level
+// `currentUser` state, which is populated by fetchCurrentUser() on bootstrap.
+// NEVER read identity from the `filter-owner` input field -- that field is a
+// search filter, not an identity source.
 function getCurrentUser() {
-    // Get from filter or use default
-    return document.getElementById('filter-owner').value || 'system';
+    return currentUser?.email ?? null;
 }
 
 function getToken() {
@@ -1285,24 +1727,8 @@ function escapeHtml(text) {
 // ===================================
 
 let groupController;
-let tabController;
 
-// Update DOMContentLoaded to initialize controllers
-const originalLoad = document.addEventListener('DOMContentLoaded', async () => {
-    setupEventListeners();
-    
-    // Initialize controllers
-    groupController = new GroupController();
-    window.groupController = groupController; // Make available globally for onclick handlers
-    
-    tabController = new TabController();
-    window.tabController = tabController;
-    
-    await tabController.init();
-    await loadSchedules();
-});
-
-// Update loadSchedules to work with tabs
+// Update loadSchedules to work with sidebar groups and date grouping
 const originalLoadSchedules = loadSchedules;
 loadSchedules = async function() {
     const owner = document.getElementById('filter-owner').value;
@@ -1313,24 +1739,26 @@ loadSchedules = async function() {
     if (owner) params.append('owner', owner);
     if (status) params.append('status', status);
     if (environment) params.append('environment', environment);
-    
-    // Add ungrouped filter if ungrouped tab is active
-    if (tabController && tabController.activeTabId === 'ungrouped') {
-        params.append('ungrouped', 'true');
-    }
 
     const query = params.toString() ? `?${params.toString()}` : '';
 
     try {
         let schedules = await apiCall(`/schedules${query}`);
-        
-        // Filter by active tab
-        if (tabController) {
-            schedules = tabController.filterSchedulesByActiveTab(schedules);
-            tabController.updateTabCounts(schedules);
+
+        // Filter by selected group
+        if (selectedGroupId === 'ungrouped') {
+            schedules = schedules.filter(s => !s.groups || s.groups.length === 0);
+        } else if (selectedGroupId !== 'all') {
+            schedules = schedules.filter(s =>
+                s.groups && s.groups.some(g => g.id === selectedGroupId)
+            );
         }
-        
-        displaySchedules(schedules);
+
+        // Update sidebar counts with all schedules (before filtering)
+        updateSidebarCounts(await apiCall(`/schedules${query}`));
+
+        // Render using date grouping
+        renderDateGroupedSchedules(schedules);
     } catch (error) {
         showNotification('Failed to load schedules: ' + error.message, 'error');
     }
@@ -1826,207 +2254,85 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+
 // ========================================
-// Quick Create Modal
+// Group Selector for Standard Form
 // ========================================
 
-let quickCreateModal;
-let quickCreateForm;
-let selectedTimeOffset = 0;
-let currentUser = null;
-let quickCreateGroups = [];
-let quickCreateGroupsLoading = false;
+let formGroups = [];
+let formGroupsLoading = false;
 
-// Initialize Quick Create on DOM load
-document.addEventListener('DOMContentLoaded', () => {
-    initializeQuickCreate();
-    loadCurrentUser();
-});
+// Load groups for standard form
+async function loadGroupsForForm() {
+    const loadingEl = document.getElementById('form-groups-loading');
+    const emptyEl = document.getElementById('form-groups-empty');
+    const listEl = document.getElementById('form-groups-list');
 
-function initializeQuickCreate() {
-    quickCreateModal = document.getElementById('quick-create-modal');
-    quickCreateForm = document.getElementById('quick-create-form');
-    
-    // Button handlers
-    document.getElementById('btn-quick-create')?.addEventListener('click', openQuickCreate);
-    document.getElementById('quick-create-close')?.addEventListener('click', closeQuickCreate);
-    document.getElementById('btn-quick-cancel')?.addEventListener('click', closeQuickCreate);
-    document.getElementById('link-full-form')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        closeQuickCreate();
-        showCreateForm();
-    });
-    
-    // Form submission
-    quickCreateForm?.addEventListener('submit', handleQuickCreateSubmit);
-    
-    // Time offset buttons
-    document.querySelectorAll('.time-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            handleTimeOffsetClick(btn);
-        });
-    });
-    
-    // Keyboard shortcut (Q key)
-    document.addEventListener('keydown', (e) => {
-        // Don't trigger if user is typing in an input
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-        
-        if (e.key === 'q' || e.key === 'Q') {
-            e.preventDefault();
-            openQuickCreate();
-        }
-    });
-    
-    // ESC key to close
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !quickCreateModal?.classList.contains('hidden')) {
-            closeQuickCreate();
-        }
-    });
-    
-    // Click outside to close
-    quickCreateModal?.addEventListener('click', (e) => {
-        if (e.target === quickCreateModal) {
-            closeQuickCreate();
-        }
-    });
-}
-
-async function loadCurrentUser() {
-    try {
-        const token = localStorage.getItem('auth_token');
-        if (!token) {
-            console.log('No auth token - redirecting to login');
-            window.location.href = '/auth/google/login';
-            return;
-        }
-
-        const response = await fetch(`${API_BASE_URL}/users/me`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        if (response.status === 401) {
-            console.log('Unauthorized - redirecting to login');
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('user_email');
-            localStorage.removeItem('user_name');
-            localStorage.removeItem('user_role');
-            window.location.href = '/auth/google/login';
-            return;
-        }
-
-        if (response.ok) {
-            currentUser = await response.json();
-            document.getElementById('quick-current-user').textContent = currentUser.name || currentUser.email;
-        }
-    } catch (error) {
-        console.error('Failed to load current user:', error);
-    }
-}
-
-async function loadRecentServices() {
-    try {
-        const token = localStorage.getItem('auth_token');
-        if (!token) return;
-
-        const response = await fetch(`${API_BASE_URL}/services/recent`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            const datalist = document.getElementById('recent-services');
-            datalist.innerHTML = '';
-
-            data.services.forEach(service => {
-                const option = document.createElement('option');
-                option.value = service;
-                datalist.appendChild(option);
-            });
-        }
-    } catch (error) {
-        console.error('Failed to load recent services:', error);
-    }
-}
-
-// Task 1.2: Fetch user's groups for Quick Create with favorites-first ordering
-async function loadQuickCreateGroups() {
-    const loadingEl = document.getElementById('quick-groups-loading');
-    const emptyEl = document.getElementById('quick-groups-empty');
-    const listEl = document.getElementById('quick-groups-list');
-
-    // Task 1.3: Show loading state
+    // Show loading state
     loadingEl.classList.remove('hidden');
     emptyEl.classList.add('hidden');
     listEl.innerHTML = '';
-    quickCreateGroupsLoading = true;
+    formGroupsLoading = true;
 
     try {
         const token = localStorage.getItem('auth_token');
         if (!token) {
-            quickCreateGroups = [];
-            renderQuickCreateGroups();
+            formGroups = [];
+            renderFormGroupSelector();
             return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/groups`, {
+        const owner = encodeURIComponent(getCurrentUser());
+        const response = await fetch(`${API_BASE_URL}/groups?owner=${owner}`, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
         });
 
         if (response.ok) {
-            quickCreateGroups = await response.json();
+            formGroups = await response.json();
             // Groups are already ordered with favorites first by the API
         } else {
-            quickCreateGroups = [];
+            formGroups = [];
         }
     } catch (error) {
-        console.error('Failed to load groups for Quick Create:', error);
-        quickCreateGroups = [];
+        console.error('Failed to load groups for form:', error);
+        formGroups = [];
     } finally {
-        quickCreateGroupsLoading = false;
+        formGroupsLoading = false;
         loadingEl.classList.add('hidden');
-        renderQuickCreateGroups();
+        renderFormGroupSelector();
     }
 }
 
-// Task 1.4: Render checkbox-based multi-select UI with favorite indicators
-// Task 1.5: Show empty state when user has no groups
-// Task 1.6: Implement keyboard navigation support
-function renderQuickCreateGroups() {
-    const emptyEl = document.getElementById('quick-groups-empty');
-    const listEl = document.getElementById('quick-groups-list');
+// Render group checkboxes in standard form
+function renderFormGroupSelector() {
+    const emptyEl = document.getElementById('form-groups-empty');
+    const listEl = document.getElementById('form-groups-list');
 
     listEl.innerHTML = '';
 
-    // Task 1.5: Empty state
-    if (!quickCreateGroups || quickCreateGroups.length === 0) {
+    // Empty state
+    if (!formGroups || formGroups.length === 0) {
         emptyEl.classList.remove('hidden');
         return;
     }
 
     emptyEl.classList.add('hidden');
 
-    // Task 1.4: Render checkboxes with favorite indicators
-    quickCreateGroups.forEach((group, index) => {
+    // Render checkboxes with favorite indicators
+    formGroups.forEach((group, index) => {
         const div = document.createElement('div');
         div.className = 'checkbox-item';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.id = `quick-group-${group.id}`;
+        checkbox.id = `form-group-${group.id}`;
         checkbox.value = group.id;
-        checkbox.name = 'quick-group';
+        checkbox.name = 'form-group';
 
         const label = document.createElement('label');
-        label.htmlFor = `quick-group-${group.id}`;
+        label.htmlFor = `form-group-${group.id}`;
 
         // Add favorite indicator
         const favoriteIcon = group.isFavorite
@@ -2041,7 +2347,7 @@ function renderQuickCreateGroups() {
         div.appendChild(checkbox);
         div.appendChild(label);
 
-        // Task 1.6: Keyboard navigation support
+        // Keyboard navigation support
         checkbox.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -2058,596 +2364,314 @@ function renderQuickCreateGroups() {
     });
 }
 
-async function openQuickCreate() {
-    quickCreateModal.classList.remove('hidden');
-    resetQuickCreateForm();
-    loadRecentServices();
+// Update showCreateForm to load groups
+const originalShowCreateForm = showCreateForm;
+showCreateForm = function() {
+    originalShowCreateForm();
+    loadGroupsForForm();
+};
 
-    // Load groups for selection (Task 1.2)
-    await loadQuickCreateGroups();
-
-    // Focus on service input
-    setTimeout(() => {
-        document.getElementById('quick-service')?.focus();
-    }, 100);
-}
-
-function closeQuickCreate() {
-    quickCreateModal.classList.add('hidden');
-    resetQuickCreateForm();
-}
-
-function resetQuickCreateForm() {
-    quickCreateForm.reset();
-    selectedTimeOffset = 0;
-
-    // Reset time buttons
-    document.querySelectorAll('.time-btn').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.offset === '0') {
-            btn.classList.add('active');
-        }
-    });
-
-    // Hide custom time input
-    document.getElementById('quick-time-custom').classList.add('hidden');
-
-    // Reset checkboxes to default (staging checked)
-    document.querySelectorAll('input[name="quick-env"]').forEach(cb => {
-        cb.checked = cb.value === 'staging';
-    });
-
-    // Reset group checkboxes
-    document.querySelectorAll('input[name="quick-group"]').forEach(cb => {
-        cb.checked = false;
-    });
-
-    // Hide loading state
-    document.getElementById('btn-quick-submit').disabled = false;
-    document.querySelector('.btn-text').classList.remove('hidden');
-    document.querySelector('.btn-loading').classList.add('hidden');
-}
-
-function handleTimeOffsetClick(btn) {
-    const offset = btn.dataset.offset;
+// Update showEditForm to load groups and pre-select assigned groups
+const originalShowEditForm = showEditForm;
+showEditForm = async function() {
+    originalShowEditForm();
+    await loadGroupsForForm();
     
-    // Update active state
-    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    
-    if (offset === 'custom') {
-        // Show custom time input
-        const customInput = document.getElementById('quick-time-custom');
-        customInput.classList.remove('hidden');
-        customInput.required = true;
-        customInput.focus();
-        selectedTimeOffset = null;
-    } else {
-        // Hide custom time input
-        const customInput = document.getElementById('quick-time-custom');
-        customInput.classList.add('hidden');
-        customInput.required = false;
-        selectedTimeOffset = parseInt(offset);
-    }
-}
-
-async function handleQuickCreateSubmit(e) {
-    e.preventDefault();
-
-    // Get form values
-    const serviceName = document.getElementById('quick-service').value.trim();
-    const selectedEnvs = Array.from(document.querySelectorAll('input[name="quick-env"]:checked'))
-        .map(cb => cb.value);
-
-    // Task 2.1: Get selected group IDs
-    const selectedGroupIds = Array.from(document.querySelectorAll('input[name="quick-group"]:checked'))
-        .map(cb => cb.value);
-
-    // Validation
-    if (!serviceName) {
-        showToast('Service name is required', 'error');
-        return;
-    }
-
-    if (selectedEnvs.length === 0) {
-        showToast('At least one environment is required', 'error');
-        return;
-    }
-
-    // Calculate scheduled time
-    let scheduledAt;
-    if (selectedTimeOffset === null) {
-        // Custom time
-        const customTime = document.getElementById('quick-time-custom').value;
-        if (!customTime) {
-            showToast('Please select a time', 'error');
-            return;
-        }
-        scheduledAt = new Date(customTime).toISOString();
-    } else {
-        // Offset from now
-        const now = new Date();
-        now.setMinutes(now.getMinutes() + selectedTimeOffset);
-        scheduledAt = now.toISOString();
-    }
-
-    // Prepare schedule data with smart defaults
-    const scheduleData = {
-        scheduledAt: scheduledAt,
-        serviceName: serviceName,
-        environments: selectedEnvs,
-        owners: currentUser ? [currentUser.email] : [],
-        description: '',
-        rollbackPlan: ''
-    };
-
-    // Show loading state
-    const submitBtn = document.getElementById('btn-quick-submit');
-    submitBtn.disabled = true;
-    document.querySelector('.btn-text').classList.add('hidden');
-    document.querySelector('.btn-loading').classList.remove('hidden');
-
-    let createdScheduleId = null;
-
-    try {
-        const token = localStorage.getItem('auth_token');
-
-        // Task 2.2: Step 1 - Create schedule
-        const scheduleResponse = await fetch(`${API_BASE_URL}/schedules`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(scheduleData)
-        });
-
-        // Task 2.3: Handle schedule creation failure
-        if (!scheduleResponse.ok) {
-            const error = await scheduleResponse.json();
-            throw new Error(error.message || 'Failed to create schedule');
-        }
-
-        const schedule = await scheduleResponse.json();
-        createdScheduleId = schedule.id;
-
-        // Task 2.2: Step 2 - Assign to groups (if any selected)
-        if (selectedGroupIds.length > 0) {
-            try {
-                const assignmentResponse = await fetch(`${API_BASE_URL}/schedules/${createdScheduleId}/groups`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        groupIds: selectedGroupIds,
-                        assignedBy: currentUser ? currentUser.email : ''
-                    })
-                });
-
-                // Task 2.4: Handle group assignment failure with rollback
-                if (!assignmentResponse.ok) {
-                    const assignError = await assignmentResponse.json();
-
-                    // Attempt to delete the created schedule (rollback)
-                    try {
-                        const deleteResponse = await fetch(`${API_BASE_URL}/schedules/${createdScheduleId}`, {
-                            method: 'DELETE',
-                            headers: {
-                                'Authorization': `Bearer ${token}`
-                            }
-                        });
-
-                        if (!deleteResponse.ok) {
-                            // Task 2.5: Rollback failure - orphaned schedule
-                            console.error('Failed to rollback schedule creation after group assignment failure');
-                            throw new Error(
-                                `Schedule created but group assignment failed. Schedule ID: ${createdScheduleId}. ` +
-                                `Please assign groups manually or delete the schedule. Error: ${assignError.message || 'Unknown error'}`
-                            );
-                        }
-
-                        // Rollback successful
-                        throw new Error(`Failed to assign groups: ${assignError.message || 'Unknown error'}. Schedule creation was rolled back.`);
-
-                    } catch (rollbackError) {
-                        // Re-throw the error (either rollback failure or assignment failure)
-                        throw rollbackError;
-                    }
+    // Pre-select groups that the schedule is already assigned to
+    if (currentSchedule && currentSchedule.id) {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`${API_BASE_URL}/schedules/${currentSchedule.id}/groups`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
                 }
-            } catch (groupError) {
-                // Re-throw group assignment or rollback errors
-                throw groupError;
+            });
+            
+            if (response.ok) {
+                const assignedGroups = await response.json();
+                const assignedGroupIds = assignedGroups.map(g => g.id);
+
+                // Check the boxes for assigned groups
+                document.querySelectorAll('input[name="form-group"]').forEach(cb => {
+                    cb.checked = assignedGroupIds.includes(cb.value);
+                });
             }
+        } catch (error) {
+            console.error('Failed to load assigned groups:', error);
         }
+    }
+};
 
-        // Task 2.6: Success - close modal and refresh
-        showToast('Schedule created successfully!', 'success');
-        closeQuickCreate();
+// ===================================
+// USER CHIP COMPONENT
+// ===================================
 
-        // Refresh the schedule list
-        if (typeof loadSchedules === 'function') {
-            loadSchedules();
-        }
+// Returns the initials (up to 2 characters) derived from a display name or
+// email. Used as the fallback avatar for the chip.
+function _chipInitials(user) {
+    const source = (user?.name || user?.email || '').trim();
+    if (!source) return '?';
+    const parts = source.split(/[\s@._-]+/).filter(Boolean);
+    if (parts.length === 0) return source.charAt(0).toUpperCase();
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+}
 
-    } catch (error) {
-        console.error('Failed to create schedule:', error);
-
-        // Task 2.3 & 2.4: Show error without closing modal
-        showToast(error.message || 'Failed to create schedule', 'error');
-
-        // Task 2.7: Preserve form values - don't reset form
-        // Reset loading state only
-        submitBtn.disabled = false;
-        document.querySelector('.btn-text').classList.remove('hidden');
-        document.querySelector('.btn-loading').classList.add('hidden');
+// Returns a plain-language description of a role for the title tooltip.
+function _roleDescription(role) {
+    switch (role) {
+        case 'admin':    return 'Administrator: full access including approvals and user management';
+        case 'deployer': return 'Deployer: can create, update, and manage own schedules';
+        case 'viewer':   return 'Viewer: read-only access to schedules';
+        default:         return 'User role';
     }
 }
 
-// ========================================
-// Template Management
-// ========================================
+// Render the user chip into the `#user-chip-container` element.
+// Called once on bootstrap after fetchCurrentUser() resolves.
+//
+// If `user` is null or has `_minimal: true`, a minimal chip is rendered that
+// shows only a sign-out control (task 6.7).
+function renderUserChip(user) {
+    const container = document.getElementById('user-chip-container');
+    if (!container) return;
 
-let templatesModal;
-let templateFormModal;
-let templateForm;
-let currentTemplate = null;
-let userTemplates = [];
-
-// Initialize Template Management
-document.addEventListener('DOMContentLoaded', () => {
-    initializeTemplateManagement();
-});
-
-function initializeTemplateManagement() {
-    templatesModal = document.getElementById('templates-modal');
-    templateFormModal = document.getElementById('template-form-modal');
-    templateForm = document.getElementById('template-form');
-    
-    // Button handlers
-    document.getElementById('btn-manage-templates')?.addEventListener('click', openTemplatesModal);
-    document.getElementById('templates-close')?.addEventListener('click', closeTemplatesModal);
-    document.getElementById('btn-create-template')?.addEventListener('click', showCreateTemplateForm);
-    document.getElementById('template-form-close')?.addEventListener('click', closeTemplateFormModal);
-    document.getElementById('btn-template-cancel')?.addEventListener('click', closeTemplateFormModal);
-    
-    // Form submission
-    templateForm?.addEventListener('submit', handleTemplateFormSubmit);
-    
-    // Click outside to close
-    templatesModal?.addEventListener('click', (e) => {
-        if (e.target === templatesModal) {
-            closeTemplatesModal();
-        }
-    });
-    
-    templateFormModal?.addEventListener('click', (e) => {
-        if (e.target === templateFormModal) {
-            closeTemplateFormModal();
-        }
-    });
-}
-
-async function openTemplatesModal() {
-    templatesModal.classList.remove('hidden');
-    await loadTemplates();
-}
-
-function closeTemplatesModal() {
-    templatesModal.classList.add('hidden');
-}
-
-function showCreateTemplateForm() {
-    currentTemplate = null;
-    document.getElementById('template-form-title').textContent = 'Create Template';
-    resetTemplateForm();
-    templateFormModal.classList.remove('hidden');
-}
-
-function showEditTemplateForm(template) {
-    currentTemplate = template;
-    document.getElementById('template-form-title').textContent = 'Edit Template';
-    populateTemplateForm(template);
-    templateFormModal.classList.remove('hidden');
-}
-
-function closeTemplateFormModal() {
-    templateFormModal.classList.add('hidden');
-    resetTemplateForm();
-}
-
-function resetTemplateForm() {
-    templateForm.reset();
-    document.getElementById('template-id').value = '';
-    document.querySelectorAll('input[name="template-env"]').forEach(cb => cb.checked = false);
-}
-
-function populateTemplateForm(template) {
-    document.getElementById('template-id').value = template.id;
-    document.getElementById('template-name').value = template.name;
-    document.getElementById('template-description').value = template.description || '';
-    document.getElementById('template-service').value = template.serviceName || '';
-    document.getElementById('template-rollback').value = template.rollbackPlan || '';
-    document.getElementById('template-time-offset').value = template.defaultTimeOffset;
-    
-    // Set owners
-    if (template.owners && template.owners.length > 0) {
-        document.getElementById('template-owners').value = template.owners.join('; ');
+    // Minimal variant: profile could not be loaded. Show only a sign-out control.
+    if (!user || user._minimal || (!user.email && !user.name)) {
+        container.innerHTML = `
+            <button type="button" class="user-chip user-chip--minimal" id="user-chip-signout-only" aria-label="Sign out">
+                <span class="user-chip__initials" aria-hidden="true">?</span>
+                <span class="user-chip__signout-label">Sign out</span>
+            </button>
+        `;
+        document.getElementById('user-chip-signout-only').addEventListener('click', signOut);
+        return;
     }
-    
-    // Set environments
-    document.querySelectorAll('input[name="template-env"]').forEach(cb => {
-        cb.checked = template.environments.includes(cb.value);
-    });
-}
 
-async function loadTemplates() {
-    try {
-        const token = localStorage.getItem('auth_token');
-        if (!token) {
-            showToast('Please log in to view templates', 'error');
+    const displayName = user.name || user.email || 'User';
+    const role = (user.role || 'viewer').toLowerCase();
+    const initials = _chipInitials(user);
+    const roleDesc = _roleDescription(role);
+
+    container.innerHTML = `
+        <button type="button"
+                class="user-chip"
+                id="user-chip-button"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="user-chip-menu"
+                aria-label="${escapeHtml(displayName)}, role: ${escapeHtml(role)}, user menu">
+            <span class="user-chip__avatar" aria-hidden="true">${escapeHtml(initials)}</span>
+            <span class="user-chip__body">
+                <span class="user-chip__name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
+                <span class="user-chip__role user-chip__role--${escapeHtml(role)}" title="${escapeHtml(roleDesc)}">${escapeHtml(role)}</span>
+            </span>
+            <span class="user-chip__caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="user-chip__menu hidden"
+             id="user-chip-menu"
+             role="menu"
+             aria-labelledby="user-chip-button">
+            <div class="user-chip__menu-info" role="presentation">
+                <div class="user-chip__menu-email">${escapeHtml(user.email || '')}</div>
+                <div class="user-chip__menu-role" title="${escapeHtml(roleDesc)}">Role: ${escapeHtml(role)}</div>
+            </div>
+            <div class="user-chip__menu-separator" role="separator"></div>
+            <button type="button" class="user-chip__menu-item" role="menuitem" id="user-chip-signout">Sign out</button>
+        </div>
+    `;
+
+    const chipButton = document.getElementById('user-chip-button');
+    const chipMenu = document.getElementById('user-chip-menu');
+    const signOutBtn = document.getElementById('user-chip-signout');
+
+    chipButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleUserChipMenu();
+    });
+
+    chipButton.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            openUserChipMenu();
+            signOutBtn?.focus();
+        }
+    });
+
+    signOutBtn.addEventListener('click', signOut);
+
+    // Arrow-key navigation within the menu. Currently only one menu item
+    // (Sign out), but the scaffolding is in place for future items.
+    chipMenu.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeUserChipMenu();
+            chipButton.focus();
             return;
         }
-        
-        const response = await fetch(`${API_BASE_URL}/templates`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const items = chipMenu.querySelectorAll('[role="menuitem"]');
+            if (items.length === 0) return;
+            const currentIndex = Array.from(items).indexOf(document.activeElement);
+            let nextIndex;
+            if (e.key === 'ArrowDown') {
+                nextIndex = (currentIndex + 1) % items.length;
+            } else {
+                nextIndex = (currentIndex - 1 + items.length) % items.length;
             }
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to load templates');
+            items[nextIndex].focus();
         }
-        
-        userTemplates = await response.json();
-        renderTemplates();
-    } catch (error) {
-        console.error('Failed to load templates:', error);
-        showToast('Failed to load templates', 'error');
-    }
-}
+    });
 
-function renderTemplates() {
-    const templatesList = document.getElementById('templates-list');
-    const templatesEmpty = document.getElementById('templates-empty');
-    
-    if (!userTemplates || userTemplates.length === 0) {
-        templatesList.innerHTML = '';
-        templatesEmpty.classList.remove('hidden');
-        return;
-    }
-    
-    templatesEmpty.classList.add('hidden');
-    
-    templatesList.innerHTML = userTemplates.map(template => `
-        <div class="template-card" data-template-id="${template.id}">
-            <div class="template-header">
-                <h3 class="template-name">${escapeHtml(template.name)}</h3>
-                <div class="template-actions">
-                    <button class="btn-icon btn-use" data-template-id="${template.id}" title="Use this template">
-                        ⚡ Use
-                    </button>
-                    <button class="btn-icon btn-edit" data-template-id="${template.id}" title="Edit template">
-                        ✏️
-                    </button>
-                    <button class="btn-icon btn-delete" data-template-id="${template.id}" title="Delete template">
-                        🗑️
-                    </button>
-                </div>
-            </div>
-            ${template.description ? `<p class="template-description">${escapeHtml(template.description)}</p>` : ''}
-            <div class="template-details">
-                ${template.serviceName ? `<div class="template-detail">
-                    <span class="detail-label">Service:</span>
-                    <span class="detail-value">${escapeHtml(template.serviceName)}</span>
-                </div>` : ''}
-                <div class="template-detail">
-                    <span class="detail-label">Environments:</span>
-                    <span class="detail-value">
-                        ${template.environments.map(env => 
-                            `<span class="badge badge-env-${env}">${env}</span>`
-                        ).join(' ')}
-                    </span>
-                </div>
-                <div class="template-detail">
-                    <span class="detail-label">Time:</span>
-                    <span class="detail-value">${formatTimeOffset(template.defaultTimeOffset)}</span>
-                </div>
-                ${template.owners && template.owners.length > 0 ? `<div class="template-detail">
-                    <span class="detail-label">Owners:</span>
-                    <span class="detail-value">${template.owners.length} owner(s)</span>
-                </div>` : ''}
-            </div>
-        </div>
-    `).join('');
-    
-    // Attach event listeners
-    templatesList.querySelectorAll('.btn-use').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const templateId = btn.dataset.templateId;
-            useTemplate(templateId);
-        });
-    });
-    
-    templatesList.querySelectorAll('.btn-edit').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const templateId = btn.dataset.templateId;
-            const template = userTemplates.find(t => t.id === templateId);
-            if (template) showEditTemplateForm(template);
-        });
-    });
-    
-    templatesList.querySelectorAll('.btn-delete').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const templateId = btn.dataset.templateId;
-            deleteTemplate(templateId);
-        });
+    // Click-outside closes the menu.
+    document.addEventListener('click', (e) => {
+        if (!chipMenu.classList.contains('hidden') &&
+            !chipButton.contains(e.target) &&
+            !chipMenu.contains(e.target)) {
+            closeUserChipMenu();
+        }
     });
 }
 
-function formatTimeOffset(minutes) {
-    if (minutes === 0) return 'Now';
-    if (minutes < 60) return `+${minutes} minutes`;
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    if (remainingMinutes === 0) return `+${hours} hour${hours > 1 ? 's' : ''}`;
-    return `+${hours}h ${remainingMinutes}m`;
+function toggleUserChipMenu() {
+    const menu = document.getElementById('user-chip-menu');
+    if (!menu) return;
+    if (menu.classList.contains('hidden')) {
+        openUserChipMenu();
+    } else {
+        closeUserChipMenu();
+    }
 }
 
-async function handleTemplateFormSubmit(e) {
-    e.preventDefault();
-    
-    const templateId = document.getElementById('template-id').value;
-    const name = document.getElementById('template-name').value.trim();
-    const description = document.getElementById('template-description').value.trim();
-    const serviceName = document.getElementById('template-service').value.trim();
-    const rollbackPlan = document.getElementById('template-rollback').value.trim();
-    const defaultTimeOffset = parseInt(document.getElementById('template-time-offset').value);
-    
-    // Get selected environments
-    const environments = Array.from(document.querySelectorAll('input[name="template-env"]:checked'))
-        .map(cb => cb.value);
-    
-    // Get owners
-    const ownersInput = document.getElementById('template-owners').value.trim();
-    const owners = ownersInput ? ownersInput.split(';').map(o => o.trim()).filter(o => o) : [];
-    
-    // Validation
-    if (!name) {
-        showToast('Template name is required', 'error');
-        return;
+function openUserChipMenu() {
+    const menu = document.getElementById('user-chip-menu');
+    const button = document.getElementById('user-chip-button');
+    if (!menu || !button) return;
+    menu.classList.remove('hidden');
+    button.setAttribute('aria-expanded', 'true');
+}
+
+function closeUserChipMenu() {
+    const menu = document.getElementById('user-chip-menu');
+    const button = document.getElementById('user-chip-button');
+    if (!menu || !button) return;
+    menu.classList.add('hidden');
+    button.setAttribute('aria-expanded', 'false');
+}
+
+// ===================================
+// SIGN-OUT FLOW
+// ===================================
+
+// Sign the user out: call POST /auth/logout to revoke the token, then clear
+// local state and redirect to the Google sign-in page. On any error the
+// local state is still cleared and the redirect still happens, so a failed
+// backend request cannot leave the user stranded in an authenticated-looking
+// session (design.md Decision 3).
+async function signOut() {
+    const token = localStorage.getItem('auth_token');
+    try {
+        if (token) {
+            await fetch(`${API_BASE_URL}/auth/logout`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+            });
+        }
+    } catch (err) {
+        console.warn('signOut: server-side logout failed; clearing local state anyway', err);
+    } finally {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_email');
+        localStorage.removeItem('user_name');
+        localStorage.removeItem('user_role');
+        currentUser = null;
+        window.location.href = '/auth/google/login';
     }
-    
-    if (environments.length === 0) {
-        showToast('At least one environment is required', 'error');
-        return;
+}
+
+// ===================================
+// MODAL FOCUS TRAP
+// ===================================
+
+// Reusable focus-trap helper for modals. Returns a `release()` function that
+// restores focus and unbinds its listeners. Intended to be called when a modal
+// opens; the caller MUST invoke the returned release() on close.
+//
+// Usage:
+//   const release = trapFocus(modalEl, () => closeModal());
+//   // ... later on close:
+//   release();
+function trapFocus(modalElement, onClose) {
+    if (!modalElement) {
+        return () => {};
     }
-    
-    const templateData = {
-        name,
-        description: description || undefined,
-        serviceName: serviceName || undefined,
-        environments,
-        owners: owners.length > 0 ? owners : undefined,
-        rollbackPlan: rollbackPlan || undefined,
-        defaultTimeOffset
+
+    const previouslyFocused = document.activeElement;
+
+    const FOCUSABLE_SELECTOR = [
+        'a[href]',
+        'button:not([disabled])',
+        'input:not([disabled]):not([type="hidden"])',
+        'select:not([disabled])',
+        'textarea:not([disabled])',
+        '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+
+    function getFocusable() {
+        return Array.from(modalElement.querySelectorAll(FOCUSABLE_SELECTOR))
+            .filter(el => el.offsetParent !== null || el === document.activeElement);
+    }
+
+    function handleKeydown(e) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            if (typeof onClose === 'function') {
+                onClose();
+            }
+            return;
+        }
+        if (e.key !== 'Tab') return;
+
+        const focusable = getFocusable();
+        if (focusable.length === 0) {
+            e.preventDefault();
+            return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+            if (document.activeElement === first || !modalElement.contains(document.activeElement)) {
+                e.preventDefault();
+                last.focus();
+            }
+        } else {
+            if (document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
+    }
+
+    modalElement.addEventListener('keydown', handleKeydown);
+
+    // Move initial focus to the first focusable element in the modal.
+    const focusable = getFocusable();
+    if (focusable.length > 0) {
+        focusable[0].focus();
+    } else {
+        modalElement.setAttribute('tabindex', '-1');
+        modalElement.focus();
+    }
+
+    return function release() {
+        modalElement.removeEventListener('keydown', handleKeydown);
+        if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+            previouslyFocused.focus();
+        }
     };
-    
-    try {
-        const token = localStorage.getItem('auth_token');
-        const url = templateId 
-            ? `${API_BASE_URL}/templates/${templateId}`
-            : `${API_BASE_URL}/templates`;
-        const method = templateId ? 'PUT' : 'POST';
-        
-        const response = await fetch(url, {
-            method,
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(templateData)
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'Failed to save template');
-        }
-        
-        showToast(`Template ${templateId ? 'updated' : 'created'} successfully!`, 'success');
-        closeTemplateFormModal();
-        await loadTemplates();
-    } catch (error) {
-        console.error('Failed to save template:', error);
-        showToast(error.message || 'Failed to save template', 'error');
-    }
 }
-
-async function deleteTemplate(templateId) {
-    const template = userTemplates.find(t => t.id === templateId);
-    if (!template) return;
-    
-    if (!confirm(`Are you sure you want to delete the template "${template.name}"?`)) {
-        return;
-    }
-    
-    try {
-        const token = localStorage.getItem('auth_token');
-        const response = await fetch(`${API_BASE_URL}/templates/${templateId}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to delete template');
-        }
-        
-        showToast('Template deleted successfully', 'success');
-        await loadTemplates();
-    } catch (error) {
-        console.error('Failed to delete template:', error);
-        showToast('Failed to delete template', 'error');
-    }
-}
-
-function useTemplate(templateId) {
-    const template = userTemplates.find(t => t.id === templateId);
-    if (!template) return;
-    
-    // Close templates modal
-    closeTemplatesModal();
-    
-    // Open Quick Create with template data
-    openQuickCreateWithTemplate(template);
-}
-
-function openQuickCreateWithTemplate(template) {
-    // Open Quick Create modal
-    quickCreateModal.classList.remove('hidden');
-    
-    // Pre-fill form with template data
-    if (template.serviceName) {
-        document.getElementById('quick-service').value = template.serviceName;
-    }
-    
-    // Set environments
-    document.querySelectorAll('input[name="quick-env"]').forEach(cb => {
-        cb.checked = template.environments.includes(cb.value);
-    });
-    
-    // Set time offset
-    const timeOffset = template.defaultTimeOffset;
-    selectedTimeOffset = timeOffset;
-    
-    // Update time button states
-    document.querySelectorAll('.time-btn').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.offset === String(timeOffset)) {
-            btn.classList.add('active');
-        }
-    });
-    
-    // Hide custom time input
-    document.getElementById('quick-time-custom').classList.add('hidden');
-    
-    // Focus on service input
-    setTimeout(() => {
-        document.getElementById('quick-service')?.focus();
-    }, 100);
-    
-    showToast(`Using template: ${template.name}`, 'success');
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// Initialize tag inputs after classes are loaded
-document.addEventListener('DOMContentLoaded', () => {
-    initializeFormTagInputs();
-});

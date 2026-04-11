@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -49,25 +50,30 @@ func (c *APIClient) GetSchedule(ctx context.Context, id string) (*api.Schedule, 
 
 // ListSchedules retrieves all schedules
 func (c *APIClient) ListSchedules(ctx context.Context, from, to *time.Time, environments, owners []string, status *string) ([]api.Schedule, error) {
-	url := "/api/v1/schedules?"
+	values := url.Values{}
 	if from != nil {
-		url += fmt.Sprintf("from=%s&", from.Format(time.RFC3339))
+		values.Set("from", from.Format(time.RFC3339))
 	}
 	if to != nil {
-		url += fmt.Sprintf("to=%s&", to.Format(time.RFC3339))
+		values.Set("to", to.Format(time.RFC3339))
 	}
 	for _, env := range environments {
-		url += fmt.Sprintf("environment=%s&", env)
+		values.Add("environment", env)
 	}
 	for _, owner := range owners {
-		url += fmt.Sprintf("owner=%s&", owner)
+		values.Add("owner", owner)
 	}
 	if status != nil {
-		url += fmt.Sprintf("status=%s&", *status)
+		values.Set("status", *status)
+	}
+
+	path := "/api/v1/schedules"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
 	}
 
 	var result []api.Schedule
-	err := c.doRequest(ctx, "GET", url, nil, &result)
+	err := c.doRequest(ctx, "GET", path, nil, &result)
 	return result, err
 }
 
@@ -99,9 +105,11 @@ func (c *APIClient) DenySchedule(ctx context.Context, id string) (*api.Schedule,
 
 // ListGroups retrieves all groups for an owner
 func (c *APIClient) ListGroups(ctx context.Context, owner string) ([]api.Group, error) {
-	url := fmt.Sprintf("/api/v1/groups?owner=%s", owner)
+	values := url.Values{}
+	values.Set("owner", owner)
+	path := "/api/v1/groups?" + values.Encode()
 	var result []api.Group
-	err := c.doRequest(ctx, "GET", url, nil, &result)
+	err := c.doRequest(ctx, "GET", path, nil, &result)
 	return result, err
 }
 
@@ -141,39 +149,6 @@ func (c *APIClient) GetRecentServices(ctx context.Context) (*api.RecentServicesR
 	return &result, err
 }
 
-// CreateTemplate creates a new schedule template
-func (c *APIClient) CreateTemplate(ctx context.Context, req api.CreateTemplateRequest) (*api.Template, error) {
-	var result api.Template
-	err := c.doRequest(ctx, "POST", "/api/v1/templates", req, &result)
-	return &result, err
-}
-
-// ListTemplates retrieves all templates for the authenticated user
-func (c *APIClient) ListTemplates(ctx context.Context) ([]api.Template, error) {
-	var result []api.Template
-	err := c.doRequest(ctx, "GET", "/api/v1/templates", nil, &result)
-	return result, err
-}
-
-// GetTemplate retrieves a template by ID
-func (c *APIClient) GetTemplate(ctx context.Context, id string) (*api.Template, error) {
-	var result api.Template
-	err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/templates/%s", id), nil, &result)
-	return &result, err
-}
-
-// UpdateTemplate updates a template
-func (c *APIClient) UpdateTemplate(ctx context.Context, id string, req api.UpdateTemplateRequest) (*api.Template, error) {
-	var result api.Template
-	err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/v1/templates/%s", id), req, &result)
-	return &result, err
-}
-
-// DeleteTemplate deletes a template
-func (c *APIClient) DeleteTemplate(ctx context.Context, id string) error {
-	return c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/templates/%s", id), nil, nil)
-}
-
 // doRequest performs an authenticated HTTP request
 func (c *APIClient) doRequest(ctx context.Context, method, path string, body, result interface{}) error {
 	// Validate and refresh token before request
@@ -181,7 +156,7 @@ func (c *APIClient) doRequest(ctx context.Context, method, path string, body, re
 		return err
 	}
 
-	url := c.baseURL + path
+	fullURL := c.baseURL + path
 
 	var reqBody io.Reader
 	if body != nil {
@@ -192,7 +167,7 @@ func (c *APIClient) doRequest(ctx context.Context, method, path string, body, re
 		reqBody = bytes.NewBuffer(jsonData)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

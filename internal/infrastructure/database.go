@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
@@ -20,6 +21,10 @@ func NewDatabase(cfg DatabaseConfig) (*sql.DB, error) {
 	// Configure connection pool
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
+	// Recycle connections before MySQL's wait_timeout closes them server-side,
+	// and release idle connections so the pool shrinks under low load.
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
 
 	// Test the connection
 	if err := db.Ping(); err != nil {

@@ -122,10 +122,21 @@ The application uses **Google OAuth 2.0** for authentication and **JWT** for ses
 - `UpdateRole()` - Admin-only role changes
 - Immutable GoogleID for audit trail
 
+*Group* (`internal/domain/group/`):
+- Organizes schedules into logical collections
+- `GroupID` - UUID wrapper
+- `GroupName` - String with validation (non-empty, max 100 chars, unique per owner)
+- `Visibility` - Enum (public, private) controlling access
+- `NewGroup(owner UserID, name, visibility)` - Factory for new groups
+- `Reconstitute()` - Factory for loading from storage
+- `SetVisibility()` - Controlled visibility mutation
+- Public groups visible to all, private only to owner
+
 **Repository Pattern**:
-- Interface defined in domain: `schedule.Repository`, `user.Repository`
-- Implementation in adapters: `mysql.ScheduleRepository`, `mysql.UserRepository`
+- Interface defined in domain: `schedule.Repository`, `user.Repository`, `group.Repository`
+- Implementation in adapters: `mysql.ScheduleRepository`, `mysql.UserRepository`, `mysql.GroupRepository`
 - Returns domain entities, never database models
+- Group repository filters by visibility: returns public groups + user's private groups
 
 ## Key Development Commands
 
@@ -138,10 +149,31 @@ go build -o bin/deployment-tail cmd/cli/main.go
 
 ### Testing
 ```bash
-make test               # Run unit tests
+make test               # Run unit tests (excludes BDD tests)
 make test-integration   # Run integration tests (requires MySQL)
+make test-bdd           # Run BDD/acceptance tests (Godog)
+make test-bdd-smoke     # Run critical BDD scenarios only
 go test -v ./internal/domain/schedule/  # Test specific package
 ```
+
+#### Mutation Testing
+
+Test-suite quality is guarded by **mutation testing** using [Gremlins](https://github.com/go-gremlins/gremlins) (`go-gremlins/gremlins`) — the industry-standard Go mutation testing tool. Mutation testing flips operators, conditionals, and other small constructs in `internal/**` and re-runs the suite to confirm the tests actually catch the regressions, not just that lines were executed.
+
+```bash
+make mutation-install     # One-time: install the gremlins binary (prints instructions)
+make mutation-test-dry    # Fast: list runnable mutants without executing tests
+make mutation-test        # Full campaign over ./internal/... (fails below thresholds)
+```
+
+**Thresholds** are configured in `.gremlins.yaml` at the repo root:
+
+- `efficacy: 70` — killed / (killed + lived)
+- `mutant-coverage: 80` — (killed + lived) / total mutants
+
+Moderate starting values; tighten as the suite matures. Generated code (`api/generated.go`), command wiring (`cmd/**`), and hand-written mocks (`internal/application/applicationtest/mocks.go`, `**/*_mock.go`) are excluded.
+
+**CI:** `.github/workflows/mutation.yml` runs Gremlins on every pull request that touches `internal/**`, `go.mod`, `go.sum`, or `.gremlins.yaml`, and is also available via `workflow_dispatch`. The workflow uploads `gremlins-output.json` as an artifact for post-run inspection.
 
 ### Running Locally
 ```bash
@@ -243,8 +275,37 @@ When implementing features from OpenSpec:
 ### Testing Patterns
 - **Unit tests:** Domain and application layers use mocks
 - **Integration tests:** Use `// +build integration` tag, require MySQL
+- **BDD/Acceptance tests:** Godog-based tests in `test/bdd/` directory
 - **Test database:** Set `TEST_DB_DSN` environment variable
 - Mock repository: `MockRepository` in `application/schedule_service_test.go`
+
+#### BDD Tests (Behavior-Driven Development)
+
+The BDD test suite (`test/bdd/`) uses [Godog v0.15](https://github.com/cucumber/godog) to turn OpenSpec specifications into executable Gherkin tests.
+
+**Running BDD tests:**
+```bash
+make test-bdd          # All BDD tests (~300ms)
+make test-bdd-smoke    # Critical scenarios only
+go test -v ./test/bdd  # Direct invocation
+```
+
+**Test layers:**
+- `@service` - Fast tests against application services with mocks
+- `@http` - Tests against real HTTP middleware stack via httptest
+- `@ui` - Chromedp-driven browser tests (Phase E, future)
+
+**Architecture:**
+- `World` struct holds per-scenario state (fresh for each scenario)
+- Step definitions in `test/bdd/*_steps.go` (common, schedule, group, http)
+- Feature files in `test/bdd/features/` mirror OpenSpec structure
+- Reuses `applicationtest` mocks from existing test infrastructure
+
+**Current coverage (Phase A):**
+- `schedule-crud` - 6/7 scenarios passing (1 @wip)
+- `schedule-groups` - 4/4 scenarios passing
+
+See `test/bdd/README.md` for detailed documentation and `test/bdd/PILOT_COMPLETE.md` for Phase A status.
 
 ### Value Object Pattern
 ```go
@@ -267,6 +328,83 @@ type Repository interface {
     // ...
 }
 ```
+
+### Web UI Architecture
+
+The web UI (`web/` directory) is built with vanilla JavaScript following modern patterns:
+
+**Structure:**
+- `index.html` - Single-page app structure with sidebar + main content layout
+- `styles.css` - CSS Grid layout, responsive breakpoints, component styles
+- `app.js` - Application logic, rendering, state management
+
+**Layout:**
+- **CSS Grid**: Sidebar (240px) + flexible content area on desktop
+- **Responsive**: < 768px breakpoint switches to mobile overlay sidebar
+- **Sidebar Navigation**: Persistent group list with favorites, visibility icons, settings
+- **Main Content**: Date-grouped schedules (Today, Tomorrow, This Week, Later)
+
+**Key Components:**
+
+*Sidebar* (`renderSidebar()`, `renderSidebarGroups()`):
+- Displays "All Schedules", "Ungrouped", and accessible groups
+- Visual indicators: 🌐 public, 🔒 private, ★ favorite
+- Settings gear icon on hover (owner only)
+- Mobile: Hamburger menu + slide-in overlay
+
+*Date Grouping* (`groupSchedulesByDate()`, `renderDateGroupedSchedules()`):
+- Organizes schedules by relative date sections
+- Collapsible sections with localStorage persistence
+- Time display (HH:MM) and OVERDUE badges
+
+*URL-Based Routing*:
+- Hash-based navigation: `#all`, `#ungrouped`, `#group/{id}`
+- Browser back/forward support via `hashchange` event
+- Bookmarkable URLs for direct group access
+
+*Group Management*:
+- Visibility toggle (public/private) in creation/edit modal
+- Inline favorite toggle from sidebar
+- CRUD operations with optimistic UI updates
+
+*User Chip* (`renderUserChip()`, `toggleUserChipMenu()`, `signOut()`):
+- Header-right identity surface with avatar (initials), display name, and role badge (viewer/deployer/admin)
+- Dropdown menu: email, role, sign-out
+- Keyboard accessible: Enter/Space opens, Escape closes, Arrow keys navigate
+- Falls back to a minimal "sign out only" chip when `/users/me` fails
+- Sign-out calls `POST /auth/logout` (server-side revocation) then clears localStorage and redirects
+
+**State Management:**
+- `currentUser` module-level state in `web/app.js` — **single source of truth** for the authenticated user. Populated from `GET /users/me` on bootstrap (before `loadGroupsAndRenderSidebar()` and `loadSchedules()`).
+- `getCurrentUser()` returns `currentUser?.email ?? null` — **never** reads from the `filter-owner` input (that field is a search filter, not an identity source).
+- URL hash for selected group
+- localStorage for collapse states, tab preferences, and `auth_token` only (never PII)
+- No global state management library - functional approach
+
+**API Integration:**
+- Fetch API for HTTP requests
+- JWT bearer token in Authorization header
+- `fetchCurrentUser()` handles 401 (redirect to sign-in), 404 (minimal-chip fallback), and 5xx/network (notification + minimal chip)
+- Error handling with user-friendly notifications routed to ARIA live regions (polite for success/info, assertive for errors)
+
+**Design Tokens:**
+- `web/styles.css` defines a token layer in `:root` covering: status/environment/role colors, surface/border/text/focus/hover/pressed colors, typography, spacing (`--space-1` through `--space-8`), radius, shadow, z-index (`--z-sidebar`, `--z-dropdown`, `--z-modal`, `--z-toast`), and motion
+- New components should consume tokens; legacy components are being migrated incrementally
+- The full token list and inventory is documented in `docs/ux-research.md`
+
+**Accessibility:**
+- `role="banner"` on header, `role="navigation"` + `aria-label="Groups"` on sidebar, semantic `<main>` landmark
+- Skip-to-main-content link (visible on keyboard focus only)
+- Global `:focus-visible` ring using `--color-focus-ring` token
+- `trapFocus(modalElement, onClose)` helper used by all modals (group modal, assign-group modal, quick-assign overlay)
+- Polite and assertive ARIA live regions for notifications
+- Sidebar gear icon revealed on `:focus-within` (keyboard accessible)
+
+**Responsive Behavior:**
+- Desktop (≥ 768px): Fixed sidebar, visible groups, full user chip
+- Mobile (< 768px): Hidden sidebar, hamburger menu in header, overlay on open
+- Narrow (< 480px): User chip collapses to avatar only
+- Smooth CSS transitions for slide-in/out
 
 ## Environment Configuration
 

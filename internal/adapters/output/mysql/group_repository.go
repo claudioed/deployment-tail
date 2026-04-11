@@ -27,14 +27,15 @@ func NewGroupRepository(db *sql.DB) *GroupRepository {
 // Create saves a new group
 func (r *GroupRepository) Create(ctx context.Context, grp *group.Group) error {
 	query := `
-		INSERT INTO `+"`groups`"+` (id, name, description, owner, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO ` + "`groups`" + ` (id, name, description, visibility, owner, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
 		grp.ID().String(),
 		grp.Name().String(),
 		grp.Description().String(),
+		grp.Visibility().String(),
 		grp.Owner().String(),
 		grp.CreatedAt(),
 		grp.UpdatedAt(),
@@ -51,12 +52,12 @@ func (r *GroupRepository) Create(ctx context.Context, grp *group.Group) error {
 	return nil
 }
 
-// FindAll retrieves all groups for a given owner
+// FindAll retrieves all accessible groups for a given owner (public groups + user's private groups)
 func (r *GroupRepository) FindAll(ctx context.Context, owner schedule.Owner) ([]*group.Group, error) {
 	query := `
-		SELECT id, name, description, owner, created_at, updated_at
-		FROM `+"`groups`"+`
-		WHERE owner = ?
+		SELECT id, name, description, visibility, owner, created_at, updated_at
+		FROM ` + "`groups`" + `
+		WHERE visibility = 'public' OR owner = ?
 		ORDER BY name ASC
 	`
 
@@ -73,16 +74,17 @@ func (r *GroupRepository) FindAll(ctx context.Context, owner schedule.Owner) ([]
 			idStr       string
 			name        string
 			description string
+			visibility  string
 			ownerStr    string
 			createdAt   time.Time
 			updatedAt   time.Time
 		)
 
-		if err := rows.Scan(&idStr, &name, &description, &ownerStr, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&idStr, &name, &description, &visibility, &ownerStr, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan group: %w", err)
 		}
 
-		grp, err := r.mapToGroup(idStr, name, description, ownerStr, createdAt, updatedAt)
+		grp, err := r.mapToGroup(idStr, name, description, visibility, ownerStr, createdAt, updatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -100,8 +102,8 @@ func (r *GroupRepository) FindAll(ctx context.Context, owner schedule.Owner) ([]
 // FindByID retrieves a group by its ID
 func (r *GroupRepository) FindByID(ctx context.Context, id group.GroupID) (*group.Group, error) {
 	query := `
-		SELECT id, name, description, owner, created_at, updated_at
-		FROM `+"`groups`"+`
+		SELECT id, name, description, visibility, owner, created_at, updated_at
+		FROM ` + "`groups`" + `
 		WHERE id = ?
 	`
 
@@ -109,6 +111,7 @@ func (r *GroupRepository) FindByID(ctx context.Context, id group.GroupID) (*grou
 		idStr       string
 		name        string
 		description string
+		visibility  string
 		ownerStr    string
 		createdAt   time.Time
 		updatedAt   time.Time
@@ -118,6 +121,7 @@ func (r *GroupRepository) FindByID(ctx context.Context, id group.GroupID) (*grou
 		&idStr,
 		&name,
 		&description,
+		&visibility,
 		&ownerStr,
 		&createdAt,
 		&updatedAt,
@@ -130,20 +134,21 @@ func (r *GroupRepository) FindByID(ctx context.Context, id group.GroupID) (*grou
 		return nil, fmt.Errorf("failed to find group: %w", err)
 	}
 
-	return r.mapToGroup(idStr, name, description, ownerStr, createdAt, updatedAt)
+	return r.mapToGroup(idStr, name, description, visibility, ownerStr, createdAt, updatedAt)
 }
 
 // Update updates an existing group
 func (r *GroupRepository) Update(ctx context.Context, grp *group.Group) error {
 	query := `
-		UPDATE `+"`groups`"+`
-		SET name = ?, description = ?, updated_at = ?
+		UPDATE ` + "`groups`" + `
+		SET name = ?, description = ?, visibility = ?, updated_at = ?
 		WHERE id = ?
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
 		grp.Name().String(),
 		grp.Description().String(),
+		grp.Visibility().String(),
 		grp.UpdatedAt(),
 		grp.ID().String(),
 	)
@@ -278,8 +283,8 @@ func (r *GroupRepository) GetSchedulesInGroup(ctx context.Context, groupID group
 // GetGroupsForSchedule retrieves all groups that a schedule belongs to
 func (r *GroupRepository) GetGroupsForSchedule(ctx context.Context, scheduleID schedule.ScheduleID) ([]*group.Group, error) {
 	query := `
-		SELECT g.id, g.name, g.description, g.owner, g.created_at, g.updated_at
-		FROM `+"`groups`"+` g
+		SELECT g.id, g.name, g.description, g.visibility, g.owner, g.created_at, g.updated_at
+		FROM ` + "`groups`" + ` g
 		INNER JOIN schedule_groups sg ON g.id = sg.group_id
 		WHERE sg.schedule_id = ?
 		ORDER BY g.name ASC
@@ -298,16 +303,17 @@ func (r *GroupRepository) GetGroupsForSchedule(ctx context.Context, scheduleID s
 			idStr       string
 			name        string
 			description string
+			visibility  string
 			ownerStr    string
 			createdAt   time.Time
 			updatedAt   time.Time
 		)
 
-		if err := rows.Scan(&idStr, &name, &description, &ownerStr, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&idStr, &name, &description, &visibility, &ownerStr, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan group: %w", err)
 		}
 
-		grp, err := r.mapToGroup(idStr, name, description, ownerStr, createdAt, updatedAt)
+		grp, err := r.mapToGroup(idStr, name, description, visibility, ownerStr, createdAt, updatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -327,6 +333,7 @@ func (r *GroupRepository) mapToGroup(
 	idStr string,
 	name string,
 	description string,
+	visibilityStr string,
 	ownerStr string,
 	createdAt time.Time,
 	updatedAt time.Time,
@@ -346,12 +353,17 @@ func (r *GroupRepository) mapToGroup(
 		return nil, fmt.Errorf("invalid description in database: %w", err)
 	}
 
+	visibility, err := group.NewVisibility(visibilityStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid visibility in database: %w", err)
+	}
+
 	owner, err := schedule.NewOwner(strings.TrimSpace(ownerStr))
 	if err != nil {
 		return nil, fmt.Errorf("invalid owner in database: %w", err)
 	}
 
-	return group.Reconstitute(id, groupName, desc, owner, createdAt, updatedAt), nil
+	return group.Reconstitute(id, groupName, desc, visibility, owner, createdAt, updatedAt), nil
 }
 
 // FavoriteGroup marks a group as favorite for a user
@@ -419,14 +431,14 @@ func (r *GroupRepository) IsFavorite(ctx context.Context, userID user.UserID, gr
 	return exists, nil
 }
 
-// FindAllWithFavorites retrieves all groups for a given owner with favorite status for a user
+// FindAllWithFavorites retrieves all accessible groups (public + user's private) with favorite status for a user
 func (r *GroupRepository) FindAllWithFavorites(ctx context.Context, userID user.UserID, owner schedule.Owner) ([]*group.Group, map[group.GroupID]bool, error) {
 	query := `
-		SELECT g.id, g.name, g.description, g.owner, g.created_at, g.updated_at,
+		SELECT g.id, g.name, g.description, g.visibility, g.owner, g.created_at, g.updated_at,
 		       COALESCE(gf.user_id IS NOT NULL, FALSE) AS is_favorite
 		FROM ` + "`groups`" + ` g
 		LEFT JOIN group_favorites gf ON g.id = gf.group_id AND gf.user_id = ?
-		WHERE g.owner = ?
+		WHERE g.visibility = 'public' OR g.owner = ?
 		ORDER BY is_favorite DESC, g.name ASC
 	`
 
@@ -444,17 +456,18 @@ func (r *GroupRepository) FindAllWithFavorites(ctx context.Context, userID user.
 			idStr       string
 			name        string
 			description string
+			visibility  string
 			ownerStr    string
 			createdAt   time.Time
 			updatedAt   time.Time
 			isFavorite  bool
 		)
 
-		if err := rows.Scan(&idStr, &name, &description, &ownerStr, &createdAt, &updatedAt, &isFavorite); err != nil {
+		if err := rows.Scan(&idStr, &name, &description, &visibility, &ownerStr, &createdAt, &updatedAt, &isFavorite); err != nil {
 			return nil, nil, fmt.Errorf("failed to scan group: %w", err)
 		}
 
-		grp, err := r.mapToGroup(idStr, name, description, ownerStr, createdAt, updatedAt)
+		grp, err := r.mapToGroup(idStr, name, description, visibility, ownerStr, createdAt, updatedAt)
 		if err != nil {
 			return nil, nil, err
 		}

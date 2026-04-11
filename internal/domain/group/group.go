@@ -11,6 +11,7 @@ type Group struct {
 	id          GroupID
 	name        GroupName
 	description Description
+	visibility  Visibility
 	owner       schedule.Owner
 	createdAt   time.Time
 	updatedAt   time.Time
@@ -20,6 +21,7 @@ type Group struct {
 func NewGroup(
 	name GroupName,
 	description Description,
+	visibility Visibility,
 	owner schedule.Owner,
 ) (*Group, error) {
 	now := time.Now().UTC()
@@ -28,6 +30,7 @@ func NewGroup(
 		id:          NewGroupID(),
 		name:        name,
 		description: description,
+		visibility:  visibility,
 		owner:       owner,
 		createdAt:   now,
 		updatedAt:   now,
@@ -39,6 +42,7 @@ func Reconstitute(
 	id GroupID,
 	name GroupName,
 	description Description,
+	visibility Visibility,
 	owner schedule.Owner,
 	createdAt time.Time,
 	updatedAt time.Time,
@@ -47,6 +51,7 @@ func Reconstitute(
 		id:          id,
 		name:        name,
 		description: description,
+		visibility:  visibility,
 		owner:       owner,
 		createdAt:   createdAt,
 		updatedAt:   updatedAt,
@@ -67,6 +72,13 @@ func (g *Group) UpdateDescription(description Description) error {
 	return nil
 }
 
+// SetVisibility updates the group visibility
+func (g *Group) SetVisibility(visibility Visibility) error {
+	g.visibility = visibility
+	g.updatedAt = time.Now().UTC()
+	return nil
+}
+
 // Getters
 
 func (g *Group) ID() GroupID {
@@ -79,6 +91,10 @@ func (g *Group) Name() GroupName {
 
 func (g *Group) Description() Description {
 	return g.description
+}
+
+func (g *Group) Visibility() Visibility {
+	return g.visibility
 }
 
 func (g *Group) Owner() schedule.Owner {

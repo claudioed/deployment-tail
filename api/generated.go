@@ -18,6 +18,24 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// Defines values for CreateGroupRequestVisibility.
+const (
+	CreateGroupRequestVisibilityPrivate CreateGroupRequestVisibility = "private"
+	CreateGroupRequestVisibilityPublic  CreateGroupRequestVisibility = "public"
+)
+
+// Valid indicates whether the value is a known member of the CreateGroupRequestVisibility enum.
+func (e CreateGroupRequestVisibility) Valid() bool {
+	switch e {
+	case CreateGroupRequestVisibilityPrivate:
+		return true
+	case CreateGroupRequestVisibilityPublic:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateScheduleRequestEnvironments.
 const (
 	CreateScheduleRequestEnvironmentsDevelopment CreateScheduleRequestEnvironments = "development"
@@ -33,6 +51,24 @@ func (e CreateScheduleRequestEnvironments) Valid() bool {
 	case CreateScheduleRequestEnvironmentsProduction:
 		return true
 	case CreateScheduleRequestEnvironmentsStaging:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GroupVisibility.
+const (
+	GroupVisibilityPrivate GroupVisibility = "private"
+	GroupVisibilityPublic  GroupVisibility = "public"
+)
+
+// Valid indicates whether the value is a known member of the GroupVisibility enum.
+func (e GroupVisibility) Valid() bool {
+	switch e {
+	case GroupVisibilityPrivate:
+		return true
+	case GroupVisibilityPublic:
 		return true
 	default:
 		return false
@@ -75,6 +111,24 @@ func (e ScheduleStatus) Valid() bool {
 	case ScheduleStatusCreated:
 		return true
 	case ScheduleStatusDenied:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateGroupRequestVisibility.
+const (
+	Private UpdateGroupRequestVisibility = "private"
+	Public  UpdateGroupRequestVisibility = "public"
+)
+
+// Valid indicates whether the value is a known member of the UpdateGroupRequestVisibility enum.
+func (e UpdateGroupRequestVisibility) Valid() bool {
+	switch e {
+	case Private:
+		return true
+	case Public:
 		return true
 	default:
 		return false
@@ -235,7 +289,13 @@ type CreateGroupRequest struct {
 
 	// Owner Owner of the group
 	Owner string `json:"owner"`
+
+	// Visibility Visibility of the group (defaults to private)
+	Visibility *CreateGroupRequestVisibility `json:"visibility,omitempty"`
 }
+
+// CreateGroupRequestVisibility Visibility of the group (defaults to private)
+type CreateGroupRequestVisibility string
 
 // CreateScheduleRequest defines model for CreateScheduleRequest.
 type CreateScheduleRequest struct {
@@ -292,6 +352,18 @@ type Group struct {
 
 	// UpdatedAt When the group was last updated
 	UpdatedAt time.Time `json:"updatedAt"`
+
+	// Visibility Visibility of the group (public visible to all, private only to owner)
+	Visibility GroupVisibility `json:"visibility"`
+}
+
+// GroupVisibility Visibility of the group (public visible to all, private only to owner)
+type GroupVisibility string
+
+// RecentServicesResponse defines model for RecentServicesResponse.
+type RecentServicesResponse struct {
+	// Services List of recently used service names
+	Services []string `json:"services"`
 }
 
 // Schedule defines model for Schedule.
@@ -345,7 +417,13 @@ type UpdateGroupRequest struct {
 
 	// Name Name of the group
 	Name string `json:"name"`
+
+	// Visibility Visibility of the group
+	Visibility *UpdateGroupRequestVisibility `json:"visibility,omitempty"`
 }
+
+// UpdateGroupRequestVisibility Visibility of the group
+type UpdateGroupRequestVisibility string
 
 // UpdateScheduleRequest defines model for UpdateScheduleRequest.
 type UpdateScheduleRequest struct {
@@ -550,6 +628,9 @@ type ServerInterface interface {
 	// Unassign schedule from group
 	// (DELETE /schedules/{id}/groups/{groupId})
 	UnassignScheduleFromGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, groupId openapi_types.UUID)
+	// Get recent service names for the authenticated user
+	// (GET /services/recent)
+	GetRecentServices(w http.ResponseWriter, r *http.Request)
 	// List all users (admin only)
 	// (GET /users)
 	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
@@ -703,6 +784,12 @@ func (_ Unimplemented) AssignScheduleToGroups(w http.ResponseWriter, r *http.Req
 // Unassign schedule from group
 // (DELETE /schedules/{id}/groups/{groupId})
 func (_ Unimplemented) UnassignScheduleFromGroup(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, groupId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get recent service names for the authenticated user
+// (GET /services/recent)
+func (_ Unimplemented) GetRecentServices(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1469,6 +1556,26 @@ func (siw *ServerInterfaceWrapper) UnassignScheduleFromGroup(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// GetRecentServices operation middleware
+func (siw *ServerInterfaceWrapper) GetRecentServices(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRecentServices(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListUsers operation middleware
 func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
 
@@ -1765,6 +1872,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/schedules/{id}/groups/{groupId}", wrapper.UnassignScheduleFromGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/services/recent", wrapper.GetRecentServices)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/users", wrapper.ListUsers)

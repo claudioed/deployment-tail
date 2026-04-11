@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/claudioed/deployment-tail/api"
@@ -70,7 +71,6 @@ func (m *MockGoogleClient) GetAuthURL(state string) string {
 	return "https://accounts.google.com/o/oauth2/auth?mock=true"
 }
 
-
 // Helper functions
 func createTestUser(role string) *user.User {
 	googleID, _ := user.NewGoogleID("test-google-id")
@@ -128,6 +128,7 @@ func TestGoogleCallback_Success(t *testing.T) {
 	handler := NewAuthHandler(mockUserService, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/google/callback?code=valid-code&state=test-state", nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: "test-state"})
 	rr := httptest.NewRecorder()
 
 	params := api.GoogleCallbackParams{
@@ -140,22 +141,20 @@ func TestGoogleCallback_Success(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusOK, rr.Code)
 	}
 
-	var response map[string]interface{}
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
+	// GoogleCallback returns an HTML bootstrap page that stores the token in
+	// localStorage and redirects the browser. Verify the token and user
+	// details are embedded in that HTML rather than trying to decode JSON.
+	body := rr.Body.String()
+	if !strings.Contains(body, "jwt-token-123") {
+		t.Errorf("expected token 'jwt-token-123' in response body")
+	}
+	if !strings.Contains(body, testUser.Email().String()) {
+		t.Errorf("expected email %s in response body", testUser.Email().String())
 	}
 
-	if response["token"] != "jwt-token-123" {
-		t.Errorf("expected token 'jwt-token-123', got %v", response["token"])
-	}
-
-	userData, ok := response["user"].(map[string]interface{})
-	if !ok {
-		t.Fatal("expected user object in response")
-	}
-
-	if userData["email"] != testUser.Email().String() {
-		t.Errorf("expected email %s, got %v", testUser.Email().String(), userData["email"])
+	contentType := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(contentType, "text/html") {
+		t.Errorf("expected Content-Type text/html, got %s", contentType)
 	}
 }
 
@@ -239,6 +238,7 @@ func TestGoogleCallback_AuthenticationFailed(t *testing.T) {
 	handler := NewAuthHandler(mockUserService, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/google/callback?code=invalid-code&state=test-state", nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: "test-state"})
 	rr := httptest.NewRecorder()
 
 	params := api.GoogleCallbackParams{

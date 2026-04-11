@@ -623,6 +623,34 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /services/recent:
+    get:
+      summary: Get recent service names for the authenticated user
+      operationId: getRecentServices
+      tags:
+        - services
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of recent service names
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecentServicesResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /groups:
     get:
       summary: List groups for an owner
@@ -1233,6 +1261,7 @@ components:
       required:
         - id
         - name
+        - visibility
         - owner
         - createdAt
         - updatedAt
@@ -1249,6 +1278,10 @@ components:
           type: string
           maxLength: 500
           description: Optional description of the group
+        visibility:
+          type: string
+          enum: [public, private]
+          description: Visibility of the group (public visible to all, private only to owner)
         owner:
           type: string
           description: Owner of the group (immutable after creation)
@@ -1278,6 +1311,11 @@ components:
           type: string
           maxLength: 500
           description: Optional description of the group
+        visibility:
+          type: string
+          enum: [public, private]
+          default: private
+          description: Visibility of the group (defaults to private)
         owner:
           type: string
           description: Owner of the group
@@ -1295,6 +1333,10 @@ components:
           type: string
           maxLength: 500
           description: Optional description of the group
+        visibility:
+          type: string
+          enum: [public, private]
+          description: Visibility of the group
 
     AssignScheduleRequest:
       type: object
@@ -1390,6 +1432,17 @@ components:
         rollbackPlan:
           type: string
           description: Optional rollback plan for the deployment
+
+    RecentServicesResponse:
+      type: object
+      required:
+        - services
+      properties:
+        services:
+          type: array
+          description: List of recently used service names
+          items:
+            type: string
 
     Error:
       type: object

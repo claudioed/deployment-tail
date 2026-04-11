@@ -99,12 +99,13 @@ func main() {
 	scheduleService := application.NewScheduleService(scheduleRepo, userRepo)
 	groupService := application.NewGroupService(groupRepo, scheduleRepo)
 	userService := application.NewUserService(userRepo, googleClient, jwtService, revocationStore)
+	serviceService := application.NewServiceService(db)
 
 	// Initialize auth handler
 	authHandler := httphandler.NewAuthHandler(userService, googleClient)
 
 	// Create HTTP server
-	server := httphandler.NewServer(scheduleService, groupService, userService, authHandler, authMiddleware)
+	server := httphandler.NewServer(scheduleService, groupService, userService, serviceService, authHandler, authMiddleware)
 
 	// Create HTTP server with graceful shutdown
 	addr := cfg.Server.Address()

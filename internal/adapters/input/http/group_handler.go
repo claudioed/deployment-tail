@@ -91,6 +91,10 @@ func (h *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		cmd.Description = *req.Description
 	}
 
+	if req.Visibility != nil {
+		cmd.Visibility = string(*req.Visibility)
+	}
+
 	grp, err := h.groupService.CreateGroup(r.Context(), cmd)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -134,6 +138,10 @@ func (h *GroupHandler) UpdateGroup(w http.ResponseWriter, r *http.Request, id op
 
 	if req.Description != nil {
 		cmd.Description = *req.Description
+	}
+
+	if req.Visibility != nil {
+		cmd.Visibility = string(*req.Visibility)
 	}
 
 	grp, err := h.groupService.UpdateGroup(r.Context(), cmd)
@@ -343,12 +351,14 @@ func (h *GroupHandler) UnfavoriteGroup(w http.ResponseWriter, r *http.Request, i
 // toAPIGroup converts domain group to API group
 func (h *GroupHandler) toAPIGroup(grp *group.Group) api.Group {
 	id := uuid.MustParse(grp.ID().String())
+	visibility := api.GroupVisibility(grp.Visibility().String())
 	apiGroup := api.Group{
-		Id:        id,
-		Name:      grp.Name().String(),
-		Owner:     grp.Owner().String(),
-		CreatedAt: grp.CreatedAt(),
-		UpdatedAt: grp.UpdatedAt(),
+		Id:         id,
+		Name:       grp.Name().String(),
+		Visibility: visibility,
+		Owner:      grp.Owner().String(),
+		CreatedAt:  grp.CreatedAt(),
+		UpdatedAt:  grp.UpdatedAt(),
 	}
 
 	if !grp.Description().IsEmpty() {

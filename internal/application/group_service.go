@@ -37,13 +37,24 @@ func (s *GroupService) CreateGroup(ctx context.Context, cmd input.CreateGroupCom
 		return nil, fmt.Errorf("invalid description: %w", err)
 	}
 
+	// Default visibility to private if not specified
+	visibilityStr := cmd.Visibility
+	if visibilityStr == "" {
+		visibilityStr = "private"
+	}
+
+	visibility, err := group.NewVisibility(visibilityStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid visibility: %w", err)
+	}
+
 	owner, err := schedule.NewOwner(cmd.Owner)
 	if err != nil {
 		return nil, fmt.Errorf("invalid owner: %w", err)
 	}
 
 	// Create the group aggregate
-	grp, err := group.NewGroup(name, description, owner)
+	grp, err := group.NewGroup(name, description, visibility, owner)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create group: %w", err)
 	}
@@ -143,6 +154,18 @@ func (s *GroupService) UpdateGroup(ctx context.Context, cmd input.UpdateGroupCom
 
 	if err := grp.UpdateDescription(description); err != nil {
 		return nil, fmt.Errorf("failed to update description: %w", err)
+	}
+
+	// Update visibility if provided
+	if cmd.Visibility != "" {
+		visibility, err := group.NewVisibility(cmd.Visibility)
+		if err != nil {
+			return nil, fmt.Errorf("invalid visibility: %w", err)
+		}
+
+		if err := grp.SetVisibility(visibility); err != nil {
+			return nil, fmt.Errorf("failed to update visibility: %w", err)
+		}
 	}
 
 	// Persist

@@ -97,7 +97,7 @@ func LoadConfig() (*Config, error) {
 
 // DSN returns the MySQL connection string
 func (c *DatabaseConfig) DSN() string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&multiStatements=true",
 		c.User, c.Password, c.Host, c.Port, c.Database)
 }
 

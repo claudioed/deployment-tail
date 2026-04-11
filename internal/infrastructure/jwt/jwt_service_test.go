@@ -203,7 +203,7 @@ func TestRefreshToken(t *testing.T) {
 	u, _ := user.NewUser(googleID, email, name, role)
 
 	originalToken, _ := service.GenerateToken(u)
-	time.Sleep(1 * time.Millisecond) // Ensure different issued time
+	time.Sleep(1 * time.Second) // Ensure different issued time (JWT timestamps are second-precision)
 
 	refreshedToken, err := service.RefreshToken(originalToken)
 	if err != nil {
